@@ -1,0 +1,23 @@
+# Données et sorties d'entraînement (plusieurs Go)
+data/
+runs/
+
+# Poids de modèles et encodages volumineux
+*.pt
+*.pth
+*.bin
+*.safetensors
+src/model/encode.json
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+
+# Config locale Claude Code
+.claude/settings.local.json
+
+# Divers
+.DS_Store

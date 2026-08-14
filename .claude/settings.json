@@ -1,0 +1,13 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-settings.json",
+  "permissions": {
+    "deny": [
+      "Edit(src/model/**)",
+      "Write(src/model/**)",
+      "Edit(src/model/*)",
+      "Write(src/model/*)",
+      "Edit(//home/ethanbravard/Completiontexte/src/model/**)",
+      "Write(//home/ethanbravard/Completiontexte/src/model/**)"
+    ]
+  }
+}
