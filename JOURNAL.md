@@ -724,6 +724,453 @@ chaque split à l'écart et en ne déplaçant qu'à la toute fin. Val et test, �
 
 ---
 
+#### Reprise du 14-15/08/2026 — lois d'échelle et initialisation
+
+> Log factuel tenu par Claude. Rubriques de compréhension laissées à Ethan.
+
+**Le contexte porté à 384**
+
+Première expérience : `max_len` de 256 à 384, tout le reste identique. Gain net —
+perplexité 6,85 → 6,37 pour 33 000 paramètres de plus (seuls les embeddings de position
+changent). L'explication tient à la couverture des histoires : à 256 tokens, 87 % des
+histoires tiennent entières ; à 384, environ 95 %. Le modèle voit presque toujours
+l'histoire complète, début compris.
+
+**Réserve méthodologique** : deux choses ont bougé en même temps. Le lot portant
+12 288 tokens au lieu de 8 192, à nombre de pas égal ce run a aussi vu 50 % de tokens de
+plus. L'attribution n'est pas propre — leçon retenue pour les runs suivants, tous menés à
+budget de tokens identique.
+
+**Le goulot n'était pas le GPU**
+
+Chronométrage à 100 pas : `dim=256` et `dim=384` donnent **exactement le même temps**
+(0,1184 s contre 0,1185 s). Élargir le modèle de 45 % ne coûtait rien — signe que le GPU
+attendait. Décomposition du pas :
+
+```
+tireur_de_lot           21,0 ms   18 %   (double boucle Python, 12 288 tokens recopiés)
+boucle Adam à la main   14,4 ms   12 %   (~180 lancements de noyau par pas)
+reste                     83 ms   70 %
+```
+
+Le calcul matriciel ne dominait pas ; l'interpréteur Python, si. Conséquence pratique :
+de la capacité disponible gratuitement. *(Après correction de l'initialisation, le
+chronométrage a changé — 0,072 s à `dim=256` contre 0,169 s à 512 — le calcul est
+redevenu dominant.)*
+
+**Loi d'échelle sur la largeur** *(ancienne initialisation, `0.1` constant)*
+
+Trois largeurs, 2 blocs, contexte 384, 30 000 pas, 369 M tokens vus, seed 1337. Seul
+`dim` change :
+
+| `dim` | paramètres | val | perplexité | gain |
+|---|---|---|---|---|
+| 256 | 2,74 M | 1,8513 | 6,37 | — |
+| 384 | 5,29 M | 1,7292 | 5,64 | −11,5 % |
+| 512 | 8,60 M | 1,6622 | 5,27 | −6,6 % |
+
+Rendement décroissant : le second doublement rapporte environ deux fois moins que le
+premier par paramètre ajouté.
+
+**L'initialisation en fonction du fan-in**
+
+Une couche calcule `y = w1·x1 + ... + wn·xn`. Si les poids ont une variance σ² et les
+entrées une variance 1, alors `Var(y) = n × σ²`. Pour que la sortie garde l'amplitude de
+l'entrée, il faut **σ = 1/√n**, où `n` est le nombre d'entrées de la couche.
+
+L'ancien `0,1` constant était donc trop grand d'un facteur qui **croît avec la largeur** :
+
+```
+             sigma correct    0,1 était...
+dim 256         0,0625        1,6× trop grand
+dim 384         0,0510        2,0×
+dim 512         0,0442        2,3×
+
+W_2 (fan-in 4·dim)            3,2× à dim=256,  4,5× à dim=512
+```
+
+Sept lignes modifiées (`W_q`, `W_k`, `W_v`, `W_o`, `W_1`, `W_2`, `W_out`), les biais et
+les embeddings laissés — ils ne somment rien. Piège évité : `W_1` et `W_2` ont des formes
+inversées, donc des fan-in différents (`dim` et `dim*4`).
+
+**Résultat : six points appariés**
+
+| `dim` | ancien init | | init 1/√n | | gain |
+|---|---|---|---|---|---|
+| | loss | perplexité | loss | perplexité | |
+| 256 | 1,8513 | 6,37 | 1,8265 | 6,21 | −2,4 % |
+| 384 | 1,7292 | 5,64 | 1,6946 | 5,44 | −3,4 % |
+| 512 | 1,6622 | 5,27 | 1,6132 | 5,02 | −4,8 % |
+
+**L'écart se creuse avec la largeur**, exactement comme la théorie le prédisait — c'était
+le point qui pouvait la démentir. Une initialisation constante ne se contente pas d'être
+approximative : elle se dégrade à mesure qu'on grandit. Le gain reste modeste ici (2 à
+5 %), mais il continuerait de croître à `dim=1024` ou 2048.
+
+**Une hypothèse réfutée**
+
+Le plateau des 6 blocs avait été attribué à l'atténuation du chemin résiduel, causée par
+l'initialisation. Calcul refait en comptant les **deux** normalisations par bloc (j'en
+avais oublié une) :
+
+```
+                  survie par bloc   après 2 blocs   après 6 blocs
+ancien init 0,1        9,7 %            0,94 %        0,0001 %
+init en 1/√n          57,7 %             33 %           3,7 %
+```
+
+L'initialisation remonte la survie d'un facteur trente mille à 6 blocs. Test mené :
+`dim=256`, 6 blocs, nouvelle initialisation, 2000 pas → **toujours 6,32**, soit
+l'entropie unigramme. Aucun changement.
+
+**L'hypothèse est réfutée.** L'initialisation était bien un problème — sur la largeur, où
+son effet est mesuré ci-dessus — mais elle n'est pas la cause de l'échec en profondeur.
+Reste comme explication le **placement** de la normalisation et non son échelle : en
+post-norm, le chemin résiduel est renormalisé à chaque bloc, donc jamais libre. Les deux
+réponses connues agissent ailleurs — le **pré-norm** (`x + f(LayerNorm(x))`, qui laisse le
+résiduel intact) et l'**échauffement du pas d'apprentissage**. Ni l'une ni l'autre n'a
+encore été testée.
+
+**État du meilleur modèle**
+
+```
+dim 512 · 2 blocs · 4 têtes · contexte 384 · vocabulaire 2080
+8,6 M paramètres · 369 M tokens vus · perplexité 5,02
+
+train 1,6132   val 1,6132   écart nul à quatre décimales
+```
+
+Toujours aucun surapprentissage, les deux courbes descendaient encore à l'arrêt.
+
+**Ce qui m'a bloqué** *(observé pendant la session)*
+
+- **Le sélecteur d'échantillonnage placé dans la boucle d'entraînement**, autour de la
+  loss et du `backward`. L'échantillonnage n'existe qu'à la génération : à l'entraînement
+  la cible est connue, la cross-entropy compare la distribution entière à la vérité, il
+  n'y a rien à choisir.
+- **Confusion entre initialisation et pas d'apprentissage.** L'initialisation fixe les
+  valeurs de départ, une fois ; le pas fixe la distance parcourue à chaque gradient. Deux
+  leviers distincts contre le même symptôme — l'échauffement agit sur le second.
+- **`dim` codé en dur** rend impossible d'enchaîner plusieurs configurations sans
+  bricoler le fichier. En faire un argument de ligne de commande est le premier pas vers
+  une série d'expériences.
+
+**Ce qui manque encore et se fait sentir**
+
+La **reprise sur checkpoint** : les fichiers contiennent poids, moyennes d'Adam et numéro
+de pas, mais rien ne les relit. Toute prolongation refait le calcul déjà fait.
+
+La **génération dans un programme séparé** : soixante checkpoints en réserve, et aucun
+moyen de les interroger sans relancer une heure d'entraînement. C'est ce qui a empêché de
+tester l'échantillonnage.
+
+---
+
+#### 15/08/2026 — `generation.py` : interroger un modèle au lieu d'en fabriquer un
+
+> Log factuel tenu par Claude. Rubriques de compréhension laissées à Ethan.
+
+**Ce qui tourne**
+
+Premier programme du projet qui **interroge** un modèle plutôt que d'en produire un.
+Il charge un checkpoint, reconstruit le modèle depuis la configuration qui y est
+enregistrée, encode une amorce, et génère du texte — en trois secondes au lieu d'une
+heure d'entraînement.
+
+```
+genere(chemin_du_checkpoint, longueur, mode, température, amorce)
+```
+
+Trois modes d'échantillonnage écrits : `greedy`, `topk`, `topp`. Plus les deux fonctions
+`encode` et `rencode`, reprises des programmes du tokenizer et adaptées pour travailler en
+mémoire sur une amorce courte.
+
+**Le principe de l'échantillonnage**
+
+À l'entraînement, il n'y a rien à choisir : la cible est connue, la cross-entropy compare
+la distribution entière à la vérité. L'échantillonnage n'existe qu'à la **génération**,
+où le modèle produit une distribution et où il faut en sortir un token.
+
+L'ordre des opérations est ce qui compte :
+
+```
+logits  --(1) température : diviser par T--> softmax --> probabilités
+        --(2) troncature : mettre à zéro--> (3) renormaliser --> tirage
+```
+
+La température agit **avant** le softmax : diviser les logits par `T` puis exponentier
+revient à élever les probabilités à la puissance `1/T`. Les troncatures agissent
+**après**, sur les probabilités, et exigent de renormaliser — en divisant par la nouvelle
+somme, pas en repassant un softmax.
+
+**Les quatre stratégies**
+
+| | ce qu'elle fait | réglage |
+|---|---|---|
+| greedy | prend le token le plus probable | aucun, déterministe |
+| température | déforme la distribution sans rien supprimer | `T` continu |
+| top-k | garde les `k` plus probables, annule le reste | `k` absolu |
+| top-p | garde les plus probables jusqu'à cumuler `p` | `p`, nombre de candidats variable |
+
+Le top-p adapte le nombre de candidats à la forme de la distribution — deux quand le
+modèle est sûr, trois cents quand il hésite. C'est la réponse au défaut du top-k, dont le
+`k` fixe déforme d'autant plus que la distribution est concentrée.
+
+**Résultats sur le meilleur modèle** *(dim 512, 2 blocs, perplexité 5,02, amorce
+« Once upon a time »)*
+
+```
+greedy    Once upon a time there was a little girl named Lucy. She was three years old
+          and loved to play with her toys. One day, she was playing with her toy bear
+          when she heard a loud noise. She looked around and saw a big truck with a big
+
+top-k 3   Once upon a time there was a little girl called Daisy. Daisy liked to explore
+          the world around her. She had a very long, thin tail and she liked to explore
+          the world around her.
+
+top-p 0,9 Once upon a time there were two good friends, Amy and Sarah. Whenever Mimi
+          listened in enough. Not mummy spoke. Daisy decided she didn't turn it.
+```
+
+Le compromis est lisible directement : greedy est cohérent mais plat, top-k à 3 boucle
+(« liked to explore the world around her » deux fois), top-p varie mais perd ses
+référents — Amy, Sarah, Mimi, Daisy, Daddy en trois phrases.
+
+**Une mesure faite en chemin**
+
+Sans amorce, le greedy rend une **chaîne vide**. Ce n'est pas un bug : la distribution
+après un `'\n'` isolé donne
+
+```
+19,76 %  '\n'      <- le plus probable, donc l'arrêt immédiat
+15,21 %  'One'
+ 9,16 %  'Once'
+ 7,77 %  'The'
+```
+
+Le token le plus probable après un saut de ligne est un autre saut de ligne — la
+frontière entre histoires. Greedy le choisit et s'arrête. Avec `k=3`, le même effet donne
+un texte vide **deux fois sur trois** : renormalisés sur trois candidats, le `'\n'` pèse
+44,8 % au lieu de 19,8 %. Le top-p, qui garde une dizaine de candidats, n'y tombe jamais.
+
+C'est le défaut du greedy observé sur des chiffres : il prend le chemin le plus probable
+pas à pas, et ici le premier pas est déjà dégénéré. L'amorce le règle — le même greedy
+produit alors six phrases cohérentes.
+
+**Ce qui m'a bloqué** *(observé pendant la session)*
+
+- **L'échantillonnage placé dans la boucle d'entraînement**, autour de la loss et du
+  `backward` — première tentative. Avec `mode='topk'`, il n'y aurait eu ni loss ni
+  rétropropagation.
+- **`from transformer import layernorm`** : `transformer.py` n'ayant pas de bloc
+  `__main__`, cet import aurait relancé 30 000 pas d'entraînement pour récupérer une
+  fonction de quatre lignes.
+- **`pos_emb` et `b_out` réinitialisés au hasard** au lieu d'être lus dans le checkpoint,
+  alors qu'ils y étaient. Bug silencieux : le texte produit aurait été incohérent sans
+  qu'aucune erreur ne le signale, et le symptôme ressemble à ce qu'on attend d'un petit
+  modèle.
+- **Le changement de référentiel après un tri**, rencontré cinq fois. `torch.sort` rend
+  un couple `(valeurs, indices)` ; une position dans le tableau trié n'est **pas** un
+  numéro de token. La table `y2[1]` fait la conversion — on la lit, on ne la parcourt
+  pas. Trois boucles successives ont été écrites pour chercher ce qu'une indexation
+  donne. Symptôme mémorable : `'nOnO'`, c'est-à-dire les tokens 0, 1 et 2 du vocabulaire.
+- **`torch.max` contre `torch.argmax`** : la valeur maximale contre son indice.
+- **Un tenseur glissé dans `seq`** au lieu d'un entier : PyTorch bascule alors en
+  indexation multidimensionnelle et `c[seq]` sort avec une forme absurde. La génération
+  s'arrêtait au deuxième token.
+- **`y[:k]` pour « les k plus probables »** : c'est « les k premiers du vocabulaire ».
+  Sans tri, le classement n'existe pas.
+- **Le dictionnaire d'emballage `{'encode': [...]}`**, à nouveau. Format de fichier
+  reproduit pour un échange entre deux fonctions en mémoire, où il n'a aucune raison
+  d'être.
+
+**Mesuré au passage**
+
+```
+tri par boucle Python : 40,90 ms      sur 384 tokens : 15,7 s
+torch.sort            :  0,083 ms                      0,032 s     493× plus rapide
+```
+
+**Ce qui reste sur ce fichier**
+
+- `k` et `p` sont codés en dur dans le corps de `genere` : les comparer demande de rouvrir
+  le fichier, ce que le banc d'essai doit justement éviter.
+- Au-delà de `max_len` tokens demandés, `pos_emb[:T]` rend moins de lignes que `x` n'en a
+  et l'addition échoue. Deux réponses possibles : s'arrêter, ou ne garder que les derniers
+  `max_len` tokens en contexte.
+- Le coût est quadratique : chaque nouveau token repasse toute la séquence dans le modèle.
+  Invisible à 45 tokens, sensible à 384. La parade est un cache des clés et valeurs.
+- La passe avant existe maintenant en **trois** exemplaires — entraînement, validation,
+  génération. Elles ne peuvent plus diverger par accident, mais toujours par oubli.
+
+---
+
+#### 15/08/2026 (suite) — le banc d'essai des réglages d'échantillonnage
+
+> Log factuel tenu par Claude. Rubriques de compréhension laissées à Ethan.
+
+**Le dispositif**
+
+`generation.py` produit une batterie de textes sur une grille de réglages ; chaque texte
+porte **avec lui** les paramètres qui l'ont produit, dans un dictionnaire. C'est ce qui
+permet ensuite de regrouper sans jamais rejouer l'ordre des boucles — la première version
+accumulait des chaînes dans une liste plate, où la 137ᵉ ne disait plus d'où elle venait.
+
+```
+6 valeurs de k × 4 températures × 100 répétitions × 4 amorces  =  4 800 textes
+                                                                  ~20 min de calcul
+```
+
+Les quatre amorces (`Once upon a time`, `One time in a castle`, `One day i will`,
+`Once `) sont choisies par le numéro de répétition, avec des seuils **relatifs** au
+nombre total — sinon un essai court à 4 répétitions n'en couvrirait qu'une seule.
+
+**Le vocabulaire de référence**
+
+Aucun fichier du projet ne contenait la liste des mots : `bpe_liste.json` a des
+fragments (`' stuck'`, `' del'`, `'arm'`), `bpe.json` a des règles. Comparer des mots
+générés au vocabulaire de tokens déclarerait **tout** inexistant — `beautiful`, `castle`
+et `grandmother` n'y sont pas plus que `strengue`.
+
+`Vocabulaire.py` dérive donc l'ensemble des mots depuis `stories.train.txt` :
+**26 107 mots distincts**, écrits une fois dans `data/vocabulaire.json` pour ne pas
+relire 450 Mo à chaque analyse.
+
+Convention figée, à appliquer **identiquement** des deux côtés : `re.findall` avec le
+motif `[a-zA-Z][a-zA-Z']*` sur le texte en minuscules. Le motif exige au moins une lettre
+en tête — sans quoi une suite d'apostrophes forme un « mot » absent de tout vocabulaire.
+
+**Résultats — top-k, taux de mots inexistants (%)**
+
+```
+         k=3     k=5     k=10    k=20    k=40    k=80
+T=0.4   0.038   0.000   0.346   0.078   0.146   0.035
+T=0.8   1.050   0.586   0.429   0.819   0.401   0.632
+T=1.2   0.544   0.727   1.132   1.132   1.675   1.886
+T=1.6   0.619   1.506   1.685   2.950   4.409   5.284
+```
+
+**La température commande, et `k` n'agit qu'à haute température.** À `T=0.4`, passer de
+3 à 80 candidats ne change rien de mesurable : la distribution est trop concentrée pour
+que le 80ᵉ token pèse quoi que ce soit. À `T=1.6`, le même passage multiplie les erreurs
+par huit.
+
+C'est une **interaction** : elle n'apparaît sur aucune des deux coupes prises séparément,
+et c'est ce qui justifiait la grille plutôt que deux séries de mesures indépendantes.
+
+**Les mots inventés sont typés**
+
+`velve`, `quey`, `yories`, `yester`, `vels` reviennent sur presque tous les réglages —
+des assemblages de fragments BPE individuellement fréquents qui ne forment aucun mot. Pas
+du bruit : des chemins probables dans le vocabulaire qui ne mènent nulle part.
+
+**Un artefact de mesure repéré et corrigé**
+
+La case `(k=10, T=0.4)` sortait à 1,256 % quand ses voisines étaient à 0,1 %. Ses
+« erreurs » étaient `"'''"`, `"''''"`, `"'i''''''"` — des apostrophes. Le motif initial
+`[a-zA-Z']+` les acceptait comme mots. Après correction : **0,346 %**, soit les deux tiers
+de la case qui étaient un défaut de l'instrument, pas du modèle.
+
+Corollaire : le vocabulaire a dû être régénéré avec le même motif. Il contenait
+1 174 entrées commençant par une apostrophe, devenues inatteignables par la nouvelle
+règle. **Celui qui construit la référence et celui qui l'interroge doivent appliquer la
+même convention** — le même principe que le vocabulaire gelé du tokenizer.
+
+**Un bug que seule la mesure a révélé**
+
+La première version du mode `topp` calculait le cumul, trouvait la position où il
+franchit `p`, et prenait **ce token-là** — sans aucun tirage. Conséquences :
+
+```
+p petit  ->  le cumul dépasse p au premier token  ->  toujours le plus probable = greedy
+p grand  ->  le token du BORD du noyau, c'est-à-dire le moins probable des retenus
+```
+
+Ce que la table a montré immédiatement :
+
+```
+         p=0.2   p=0.4   p=0.6   p=0.9
+T=0.4   0.000   0.000   0.000    2.532
+T=1.6   1.887   8.025  17.787   31.930
+```
+
+Des zéros exacts à gauche (le greedy), et jusqu'à **32 %** de mots inventés à droite —
+aucun modèle sain ne produit ça.
+
+**Le texte, lui, paraissait correct** : *« Max rolled under the sticks to hide with Spot
+until there was an impressive place »* se lit sans soupçon. C'est la mesure qui a révélé
+le défaut, pas la lecture.
+
+Le correctif tient en une ligne : le cumul détermine **combien** de tokens garder ; il
+faut ensuite tirer parmi eux comme le fait déjà le mode `topk`. Les deux modes ne
+diffèrent que sur ce nombre — donné pour `k`, calculé pour `p` — et le `+1` compte : le
+token qui *fait franchir* `p` appartient au noyau.
+
+Après correction :
+
+```
+p=0.2   Once upon a time there was a little girl named Lucy. She was three years old…
+p=0.9   Once upon a time there was a bald man called Jack. He was very naughty…
+```
+
+**Outillage ajouté** *(zone verte, écrit par Claude)*
+
+`src/tooling/tracer.py` — `taux`, `table`, `sauver`, `tracer_grille`, `tracer_carte`,
+`tracer_compromis`.
+
+Deux décisions de visualisation, prises sur mesure et non sur goût :
+
+- **Palette catégorielle validée** pour le daltonisme (séparation ΔE conforme en
+  protanopie, deutéranopie, tritanopie), assignée dans un **ordre fixe** — `k=3` garde sa
+  teinte quel que soit le nombre de séries affichées. Trois teintes passent sous 3:1 de
+  contraste, d'où la table texte systématique : l'identité d'une série ne dépend jamais
+  de la seule couleur.
+- **Carte de chaleur en une seule teinte**, du clair au foncé, avec **la valeur écrite
+  dans chaque case**. L'étendue des mesures va de 0,035 % à 5,284 %, soit un rapport de
+  152 : sur une échelle linéaire, dix-huit cases sur vingt-quatre tomberaient sous 20 %
+  d'intensité et deviendraient indistinguables. La couleur donne la forme, le chiffre
+  donne la précision.
+
+**Ce qui m'a bloqué** *(observé pendant la session)*
+
+- **Un plantage machine.** Le tueur de mémoire du noyau a supprimé un processus Python de
+  **6,2 Go**, et emporté la session graphique avec — le processus tournait dans le
+  terminal intégré de VSCode, donc dans le même groupe de contrôle que l'éditeur. Cause :
+  une lecture du corpus d'un seul bloc (`open(...).read()` sur 450 Mo, puis `findall`
+  dessus, fabrique 80 millions de chaînes avant d'en faire un ensemble de 26 000).
+  Mesuré : **5,09 Go d'un bloc contre 0,01 Go ligne par ligne**, pour la même durée.
+  Second suspect au même moment, `decoupage_texte.py`, qui construit une liste de
+  450 millions de caractères — 3,6 Go rien qu'en pointeurs. Fichier renommé `OBSOLETE_`.
+- **Le tri change de référentiel**, rencontré cinq fois. `torch.sort` rend un couple
+  `(valeurs, indices)` ; une position dans le tableau trié n'est pas un numéro de token.
+  Symptôme mémorable : `'nOnO'` — les tokens 0, 1 et 2 du vocabulaire.
+- **`y[:k]` pour « les k plus probables »** : c'est « les k premiers du vocabulaire ».
+  Sans tri, le classement n'existe pas.
+- **Un tenseur glissé dans `seq`** au lieu d'un entier : PyTorch bascule en indexation
+  multidimensionnelle et `c[seq]` sort avec une forme absurde.
+- **`np.array(dict)`** emballe le dictionnaire entier dans un tableau à zéro dimension —
+  il n'en extrait pas les valeurs. Et même s'il le faisait, `cpt` et `cptot` n'ont pas
+  les mêmes clés : une case sans erreur est absente du premier. Il faut passer par les
+  clés, pas par les positions.
+- **`defaultdict` est une classe**, pas une méthode : elle s'utilise à la création. Et le
+  type de défaut suit l'usage — `int` pour compter, `list` pour collectionner.
+- **Le triple emballage** : `gen['topk']` est une liste de 100 listes de 24 dictionnaires,
+  et `['texte']` rend **une chaîne**, pas une collection. Boucler dessus donne ses
+  caractères.
+- **Un tri par boucle Python** contre `torch.sort` : 40,90 ms contre 0,083 ms, soit
+  **493×**. Sur une génération de 384 tokens, 15,7 s contre 0,032 s.
+
+**Ce qui reste**
+
+- Le **taux de répétition**, métrique opposée qui manque encore. Sans elle, la table
+  pousse vers `T=0.4` — précisément le réglage qui fait radoter le modèle
+  (*« liked to explore the world around her »* deux fois dans le même texte).
+- Le **dépassement de `max_len`** en génération, toujours non traité.
+- Les blocs `topk` et `topp` de l'analyse sont deux copies qui ne diffèrent que par un
+  nom de paramètre.
+
+---
+
 **Ce que j'ai compris**
 
 - **Pourquoi pas le niveau mot** : il faudrait connaître tous les mots, et à chaque mot
@@ -887,6 +1334,184 @@ chaque split à l'écart et en ne déplaçant qu'à la toute fin. Val et test, �
   différents sur la même information : de nouveaux couples (contexte, cible), pas de
   nouvelles données. C'est pourquoi la courbe finit par s'aplatir malgré des fenêtres
   inédites à chaque pas — seul un corpus plus grand repousse ce plafond.
+
+---
+
+#### 15/08/2026 (suite) — la répétition, et le réglage qui trompe les deux métriques
+
+> Log factuel tenu par Claude. Rubriques de compréhension laissées à Ethan.
+
+**Pourquoi tous les chiffres de la section précédente ont changé**
+
+Le défaut de top-p corrigé, les 4 800 textes ont été régénérés. Le fichier
+`generation20260815-0230.json` a été remplacé : les tables de mots inexistants notées
+plus haut portent sur la donnée d'avant et ne sont plus comparables ligne à ligne.
+La forme, elle, tient — même monotonie, mêmes ordres de grandeur.
+
+**La seconde métrique**
+
+Le taux de mots inexistants ne mesure qu'un côté. Poussé seul, il désigne le réglage le
+plus prudent, celui qui répète. Il fallait la métrique opposée : la proportion de
+**4-grammes de mots vus plus d'une fois**.
+
+Le piège, et il est unique : le comptage se fait **texte par texte**, seuls les deux
+nombres sortent vers la case. Compté sur toute une case d'un coup, les cent textes
+partageant `once upon a time there` produiraient un taux énorme — or répéter une formule
+d'un texte à l'autre n'est pas un défaut. C'est le radotage **interne** qu'on cherche.
+
+**Résultats — taux de répétition (%)**
+
+```
+top-k                                      top-p
+      k=3    k=5    k=10   k=20   k=40   k=80        p=.2   p=.4   p=.5   p=.6   p=.8   p=.9
+T=0.4 0.270  0.924  0.922  0.702  0.380  1.321      0.000  0.000  0.198  0.495  6.813  1.460
+T=0.8 1.267  0.815  0.839  0.218  0.369  0.272      0.067  5.396  3.105  0.491  1.822  0.346
+T=1.2 0.737  0.465  0.038  0.120  0.110  0.096      0.941  0.260  0.192  0.352  0.567  0.070
+T=1.6 0.694  0.361  0.112  0.029  0.031  0.000      0.664  0.354  0.000  0.036  0.029  0.000
+```
+
+Les deux tables varient **en sens inverse** de celles des mots inexistants. C'est le
+contrôle : si elles allaient dans le même sens, une des deux mesures serait fausse.
+
+**La dégénérescence**
+
+Deux cases de top-p sortent du lot d'un facteur dix : 6,813 % et 5,396 %. Ce n'est pas
+du bruit. Dans la case `p=0.8, T=0.4`, **12 textes sur 100** entrent en boucle et n'en
+sortent plus ; le pire fournit à lui seul 72 des 183 répétitions de la case.
+
+```
+« He put on his hat and his hat and his hat and his hat and… »
+« She will be a good truck. She will be a good truck. She will be… »
+```
+
+C'est le phénomène décrit par **Holtzman et al., 2020, *The Curious Case of Neural Text
+Degeneration*** — l'article qui a introduit top-p, précisément contre ça. La mesure l'a
+reproduit sur ce modèle-ci.
+
+Conséquence sur la métrique : elle est **à queue lourde**. Deux textes sur huit cents
+fixent l'échelle du graphique et écrasent les vingt autres points contre l'axe. Une
+variante plus robuste existe sur les mêmes compteurs — la proportion de textes contenant
+au moins une répétition (12 % et 10 %, contre 6,8 % et 5,4 % en taux poolé) : elle répond
+à « à quelle fréquence le modèle déraille » plutôt qu'à « combien de texte est gâché ».
+Non écrite pour l'instant.
+
+**Le graphique de compromis, et ce qu'il dit**
+
+Un point par réglage, répétition en abscisse, mots inventés en ordonnée. Les réglages
+qu'aucun autre ne bat sur les deux critères se lisent en bas à gauche.
+
+- **top-k** : `k=3, T=0.4` à (0,270 ; 0,000). Tout ce qui est à sa droite est dominé.
+  Seul `k=10, T=1.2` lui échappe, à (0,03 ; 0,78) — moins de radotage, payé en mots
+  inventés. Arbitrage réel, pas erreur de mesure.
+- La forme d'ensemble est un L : la température fait descendre la répétition et remonter
+  les mots inventés. Le compromis est visible à l'œil, il n'était jusqu'ici que supposé.
+
+**Le piège, et c'est le résultat le plus utile de la journée**
+
+Le meilleur point de top-p est `p=0.2, T=0.4` à **(0,000 ; 0,000)**. Zéro partout.
+
+Or `p=0.2` à basse température ne conserve qu'un ou deux tokens à chaque pas : c'est du
+greedy déguisé, et les cent textes de cette case sont quasi identiques. Les deux métriques
+le déclarent optimal parce que **ni l'une ni l'autre ne mesure la diversité**.
+
+Maximiser la vraisemblance donne du texte propre et mort. Deux métriques opposées ne
+suffisent pas si elles laissent un angle mort commun : il manque une troisième mesure —
+nombre de textes distincts par amorce, ou vocabulaire employé rapporté au nombre de mots.
+Sans elle, la table conduit vers le réglage qui ne raconte jamais qu'une seule histoire.
+
+**Deux détails d'outillage qui ont coûté du temps**
+
+- Trois fichiers (`mesures_*.json`, `carte_*.png`, `courbes_*.png`) dérivent d'**une**
+  chaîne de nom. Réutiliser la même variable pour une seconde métrique écrase les trois
+  sans un mot. La métrique fait donc partie du nom, pas seulement du contenu.
+- Les versions de bibliothèques étaient recopiées à l'identique dans quatre appels.
+  `importlib.metadata.version` les lit dans les métadonnées du paquet **sans l'importer** :
+  plus de `import torch` à trois secondes pour une chaîne, et le fichier ne peut plus
+  mentir sur ce qui a servi.
+
+---
+
+#### 16-17/08/2026 — le pre-norm débloque la profondeur
+
+> Log factuel tenu par Claude. Rubriques de compréhension laissées à Ethan.
+
+**La question ouverte depuis le 14/08**
+
+Six blocs ne descendaient pas sous **6,32**, le plancher d'entropie unigramme du corpus
+(6,3149) : le modèle n'apprenait que la fréquence des tokens. Deux blocs marchaient.
+L'initialisation avait été mise hors de cause par l'expérience — 2000 pas, aucun effet.
+Restait le placement des normalisations.
+
+**La correction**
+
+```
+post-norm   x = LN( x + f(x) )      la normalisation est SUR le chemin résiduel
+pre-norm    x = x + f( LN(x) )      la normalisation est SUR l'entrée de la sous-couche
+```
+
+En post-norm, six blocs = **douze** renormalisations du flux résiduel. Le gradient
+n'atteint plus le bas. En pre-norm le flux traverse le réseau sans jamais être recalé ;
+seules les sous-couches voient une entrée normalisée.
+
+Contrepartie obligatoire : plus rien ne borne `x` à la sortie du dernier bloc, d'où une
+**normalisation finale** avant `W_out` — deux paramètres, hors des listes par bloc.
+Oubliée, elle ne lève aucune erreur : elle dégrade.
+
+**Ce qu'il fallait toucher** : quatre passes avant vivantes (entraînement, validation,
+`genere_prenom`, `generation.py`), plus la déclaration, `params`, la sauvegarde et la
+relecture. Une seule copie oubliée fait diverger l'architecture entre entraînement et
+génération, en silence.
+
+**La mesure qui tranche, à 250 pas**
+
+```
+6 blocs   post-norm            6.3664     ne dépasse pas le plancher unigramme
+6 blocs   pre-norm complet     5.0173     apprend
+2 blocs   pre-norm complet     4.6706     (contrôle de non-régression, était 4.7648)
+```
+
+**Le run de 30 000 pas — loss d'entraînement, à budget de pas égal**
+
+```
+pas       2 blocs post-norm dim=512     6 blocs pre-norm dim=384
+3 000     2.1130                        1.9513
+15 000    1.7137                        1.5361
+30 000    1.6132                        1.4283
+
+perplexité finale        5.02                        4.17   (validation : 4.32)
+paramètres               8,63 M                     12,39 M
+```
+
+**La réserve, et elle est réelle** : le modèle profond a aussi **44 % de paramètres en
+plus**. L'expérience ne sépare pas l'effet de la profondeur de celui de la taille. Ce
+qu'elle établit sans ambiguïté, c'est que la profondeur est devenue *utilisable* — elle
+ne l'était pas du tout auparavant.
+
+**Pas de surapprentissage** : écart entraînement/validation de 0,035, soit 2,5 %. Et la
+loss a plafonné sur les 1000 derniers pas (1,4323 → 1,4283). Le budget est consommé :
+12,39 M paramètres appellent ~250 M tokens selon Chinchilla, le run en a vu 369 M.
+Le levier suivant est le corpus et la taille, pas le nombre de pas.
+
+**Le texte produit**
+
+Cohérent sur plusieurs phrases, avec une structure narrative tenue :
+
+```
+Once upon a time, there was a little boy named Tim. He loved to play with his
+toys. One day, he found a big box in the attic. It was dark and full of old things.
+```
+
+Les défauts restants sont de deux sortes : des mots inventés (`swamf`, `microwaf`) et des
+phrases grammaticalement correctes mais absurdes (`The water was going to rain`). La
+première catégorie est ce que mesure le banc d'essai du 15/08 ; la seconde ne l'est par
+aucune métrique écrite à ce jour.
+
+**Point d'outillage** : `runs/save_runs/<date>/log.txt` existe désormais. Son absence
+avait empêché toute comparaison chiffrée avec les runs précédents — seuls les
+checkpoints subsistaient, et il a fallu les rouvrir un par un pour retrouver trois
+valeurs de loss.
+
+
 
 
 

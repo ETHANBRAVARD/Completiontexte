@@ -212,6 +212,31 @@ capacité supplémentaire ne fait que mémoriser.
 
 ---
 
+## 11. Holtzman, Buys, Du, Forbes & Choi (2020) — *The Curious Case of Neural Text Degeneration*
+
+arXiv:1904.09751 (ICLR 2020).
+
+**L'article du décodage, et il est arrivé au bon moment : le 15/08/2026, le banc d'essai
+de `generation.py` a reproduit son résultat central sur ce modèle-ci.**
+
+La thèse : maximiser la vraisemblance produit du texte *dégénéré*. Le décodage glouton et
+le beam search entrent dans des boucles — mesuré ici sur `p=0.8, T=0.4`, où 12 textes sur
+100 partent en cycle (« *and his hat and his hat and his hat…* »). La cause n'est pas un
+défaut du modèle mais du critère : le texte humain n'est pas la suite de mots la plus
+probable, il est *surprenant par endroits*.
+
+L'article introduit **top-p (nucleus sampling)** : garder le plus petit ensemble de tokens
+dont la probabilité cumulée atteint `p`, puis renormaliser. Son avantage sur top-k est que
+la taille de l'ensemble **s'adapte** — large quand la distribution est plate, étroite
+quand elle est piquée, là où un `k` fixe impose la même largeur dans les deux cas.
+
+À relire pour la suite : l'article insiste sur le fait qu'aucune métrique unique ne
+suffit à juger un décodage. Le piège rencontré ici en est l'illustration — `p=0.2, T=0.4`
+obtient zéro sur les deux métriques mesurées (répétition, mots inexistants) tout en
+produisant cent fois la même histoire, faute d'une mesure de diversité.
+
+---
+
 ## Compléments (à lire au besoin, quand le sujet se présente)
 
 - **Nielsen (2015), *Neural Networks and Deep Learning*, chapitre 2** —
