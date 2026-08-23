@@ -2,7 +2,12 @@ import torch
 import torch.nn.functional as F
 import json
 from pathlib import Path
+import datetime
+from random import randint
+import hashlib
+import math
 cheminbpe="data/tokenizer/bpe.json"
+date=format(datetime.datetime.now(), '%Y%m%d-%H%M%S')
 
 def encode(amorce):
     cheminbpe="data/tokenizer/bpe.json"
@@ -56,11 +61,11 @@ def layernorm(x, g, b):
     return (x-mean)/torch.sqrt(var+1e-5)*g+b
 
 
-def genere(saveway,nombre_de_car,mode,temp,amorce,k=3,p=0.9,seed=False): #mode= 'greedy' ou 'topk' ou 'topp'
+def genere(checkpoint,nombre_de_car,mode,temp,amorce,k=3,p=0.9,seed=False): #mode= 'greedy' ou 'topk' ou 'topp'
     if seed:
         torch.manual_seed(seed)
     appareil=torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-    sauvegarde=torch.load(saveway)
+    sauvegarde=checkpoint
     seed=1337
     chemin="data/tokenizer/bpe_liste.json"
     with open(chemin,'r') as f:
@@ -86,16 +91,13 @@ def genere(saveway,nombre_de_car,mode,temp,amorce,k=3,p=0.9,seed=False): #mode= 
     lnn_b=sauvegarde['lnn_b']
     lnn_g=sauvegarde['lnn_g']
     W_out=sauvegarde['W_out']
-    head_dim=sauvegarde['head_dim']
     dim=sauvegarde['dim']
     b_out=sauvegarde['b_out']
     fiche_car={'nombre de tokens vu':sauvegarde['nombre de tokens vu'],'seed':sauvegarde['seed'],
-'m':sauvegarde['m'],
-'v':sauvegarde['v'],
-'t':sauvegarde['t'],
 'i':sauvegarde['i'],
 'loss':sauvegarde['loss'],
 'pas' :sauvegarde['pas']}
+    head_dim=dim//num_heads
     amorce=rencode(encode(amorce),alphabet)
     if nombre_de_car>max_len:
         nombre_de_car=max_len
@@ -149,9 +151,13 @@ def genere(saveway,nombre_de_car,mode,temp,amorce,k=3,p=0.9,seed=False): #mode= 
                 break
             seq.append(idx)
         print(f"i:{fiche_car['i']},loss:{fiche_car['loss']},seed:{fiche_car['seed']}")
-        return ''.join(alphabet[i] for i in seq[1:])
+        return ''.join(alphabet[i] for i in seq)
 
+def graine(seed,cpt):
+    hash=f'{seed}'+'_'+f'{cpt}'
+    return(int(hashlib.sha256(hash.encode()).hexdigest()[:16],16))
 if __name__ == '__main__':
+    cpt=0
     topk=[]
     topp=[]
     greedy=[]
@@ -162,28 +168,93 @@ if __name__ == '__main__':
     print('checkpoint :', saveway)
     nombre_de_car=100
     p = Path(saveway)
-    nb=100
-    for e in range (nb):
-        topk.append([])
-        topp.append([])
-        if e<nb/4:
-            amorce='Once upon a time'
-        elif e<nb/2:
-            amorce='One time in a castle'
-        elif e<3*nb/4:
-            amorce='One day i will'
-        else:
-            amorce = 'Once '
-        for i in [3, 5, 10, 20, 40, 80]:
-            for j in range (1,5):
-                temp=j*0.4
-                topk[-1].append({'texte':genere(saveway,nombre_de_car,'topk',temp,amorce,i),'amorce':amorce,'k':i,'temperature':temp})
-        for i in [0.2, 0.4, 0.5, 0.6, 0.8, 0.9]:
-                for j in range (1,5):
+    checkpoint=torch.load(saveway)
+    numero_i=checkpoint['i']
+    nom=f"runs/generation/generation{p.parent.name}_{date}_{numero_i}.json"
+    amorceliste = [
+    'Once upon a time',
+    'One time in a castle',
+    'One day i will',
+    'Once ',
+    'The',
+    'Suddenly,',
+    'Tim was',
+    'Lucy and her mom',
+    'and then she',
+    'but the little boy did not',
+    'He wanted to',
+    'It was a very hot day and',
+    'Why did the dog',
+    'What is inside the',
+    '"Hello," said',
+    '"I am scared," she',
+    "\"That's mine!\" shouted",
+    'One rainy morning, the little girl found a',
+    'In the big forest, there was a tiny',
+    'The moral of the story is',
+]
+    seed=randint(0,10**10)
+    taille=len(amorceliste)
+    nb=25 * taille
+    grille_k = [3, 5, 10, 20, 40, 80]
+    grille_p = [0.2, 0.4, 0.5, 0.6, 0.8, 0.9]
+    grille_temperature = [j * 0.4 for j in range(1, 5)]
+
+    with open(nom, "x", encoding="utf-8") as f:
+        for e in range (nb):
+            topk.append([])
+            topp.append([])
+            amorce=amorceliste[e%taille]
+            for i in grille_k:
+                for j in grille_temperature:
                     temp=j*0.4
-                    topp[-1].append({'texte':genere(saveway,nombre_de_car,'topp',temp, amorce ,i,i),'amorce':amorce,'p':i,'temperature':temp})
-        if e%(nb/4)==0:
-            greedy.append({'texte':genere(saveway,nombre_de_car,'greedy',temp,amorce),'amorce':amorce})
-    retour={'topk':topk,'topp':topp,'greedy':greedy}
-    with open(f"runs/generation/generation{p.parent.name}.json", "w", encoding="utf-8") as f:
-          json.dump(retour, f,ensure_ascii=False)
+                    cpt+=1
+                    seed2=graine(seed,cpt)
+                    topk[-1].append({'texte':genere(checkpoint,nombre_de_car,'topk',temp,amorce,i,seed=seed2),'amorce':amorce,'k':i,'temperature':temp,'cpt':cpt})
+            for i in grille_p:
+                    for j in grille_temperature:
+                        cpt+=1
+                        seed2=graine(seed,cpt)
+                        temp=j*0.4
+                        topp[-1].append({'texte':genere(checkpoint,nombre_de_car,'topp',temp, amorce ,p=i,seed=seed2),'amorce':amorce,'p':i,'temperature':temp,'cpt':cpt})
+        for i in range(taille):
+            cpt+=1
+            seed2=graine(seed,cpt)
+            greedy.append({'texte':genere(checkpoint,nombre_de_car,'greedy',1.0,amorceliste[i],seed=seed2),'amorce':amorceliste[i],'cpt':cpt})
+        POIDS = ['c', 'pos_emb', 'lnn_g', 'lnn_b', 'W_out', 'b_out',
+                 'W_q', 'W_k', 'W_v', 'W_o', 'W_1', 'b_1', 'W_2', 'b_2',
+                 'ln1_g', 'ln1_b', 'ln2_g', 'ln2_b']
+        parametres = sum(t.numel() for k in POIDS
+                         for t in (checkpoint[k] if isinstance(checkpoint[k], list)
+                                   else [checkpoint[k]]))
+
+        provenance = {
+            'date_generation'      : date,
+            'checkpoint'           : saveway,
+            'pas_entrainement'     : checkpoint['i'],
+            'loss_validation'      : checkpoint['loss'],
+            'perplexite_validation': math.exp(checkpoint['loss']),          
+            'parametres'           : parametres,   
+            'tokens_vus'           : checkpoint['nombre de tokens vu'],
+            'taux_apprentissage'   : checkpoint['pas'],
+            'seed_entrainement'    : checkpoint['seed'],
+            'dim'                  : checkpoint['dim'],
+            'num_blocs'            : checkpoint['num_blocs'],
+            'num_heads'            : checkpoint['num_heads'],
+            'max_len'              : checkpoint['max_len'],
+            'vocabulaire'          : checkpoint['alph'],
+            'tokenizer'            : 'data/tokenizer/bpe_liste.json',
+            'amorces'              : amorceliste,
+            'textes_par_amorce'    : nb // taille,
+            'nombre_de_car'        : nombre_de_car,
+            'grille_k'             : grille_k,
+            'grille_p'             : grille_p,
+            'grille_temperature'   : grille_temperature,
+            'seed_base'            : seed,
+            'regle_graine'         : 'sha256("<seed_base>_<cpt>") hexdigest[:16] en base 16',
+            'appels'               : cpt,
+        }
+        retour = {'topk': topk, 'topp': topp, 'greedy': greedy, 'provenance': provenance}
+        json.dump(retour, f, ensure_ascii=False)
+
+
