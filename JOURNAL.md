@@ -1514,6 +1514,136 @@ valeurs de loss.
 
 
 
+#### 23/08/2026 — noms, provenance et graines : rendre un run rejouable
+
+
+**Le nom d'un fichier fait partie de sa donnée**
+
+Le nom contenait la date du checkpoint mais pas d'horodatage de la génération, donc deux
+fichiers issus du même modèle portaient le même nom : c'est ce qui a rendu la destruction
+possible.
+
+Trois mécanismes envisagés pour l'empêcher :
+
+- **un entier qui s'incrémente** : nécessitait une mémoire, ne disait rien du moment où le
+  run avait été fait — avant ou après telle modification — et n'apportait aucune
+  traçabilité temporelle ;
+- **attendre que l'horloge change** : embêtant, il faut attendre, vérifier des minuteurs ;
+- **le refus d'écrire** : net et bruyant. En cas de problème, on le sait.
+
+J'ai choisi le refus, en réservant le nom à l'ouverture du fichier, avant les calculs. Le
+prix est de laisser le fichier ouvert pendant tout le run, et qu'une exécution interrompue
+laisse derrière elle un fichier de 0 octet — que l'analyse choisira, puisqu'il porte
+l'estampille la plus récente. En échange, la vérification se fait avant la partie longue :
+plus de plantage après vingt minutes de calcul perdues.
+
+**La provenance**
+
+Un fichier de résultats doit pouvoir, seul, répondre à trois questions :
+
+- **refaire** — relancer la même génération : checkpoint, graine, amorces, grilles ;
+- **comparer** — dire ce qui diffère d'un autre run : pas d'entraînement, forme du modèle ;
+- **interpréter** — savoir ce que les chiffres veulent dire. Une perplexité de 4,32 ne
+  signifie rien sans le corpus et le vocabulaire sur lesquels elle est mesurée. C'est ce
+  qui justifie d'y inscrire le nombre de paramètres, la perplexité et le tokenizer, qui ne
+  servent ni à relancer ni à comparer.
+
+Le critère pour retenir un champ : est-il obtenable à partir des autres, et sert-il à l'une
+de ces trois questions ? Par exemple `dim`, `num_heads` et `head_dim` sont liés par une
+relation : je n'en ai gardé que deux sur trois, parce que trop d'informations superflues
+nuisent à la compréhension et à la lisibilité.
+
+Le chemin du checkpoint ne suffit pas. Il dit **où**, pas **quoi** : si le `.pt` est
+déplacé ou supprimé, il ne vaut plus rien. Les faits qu'on veut conserver — pas, loss,
+perplexité, nombre de paramètres, forme du modèle — sont donc recopiés dans le JSON.
+Quelques dizaines d'octets, et ils survivent au fichier qu'ils décrivent.
+
+**La graine**
+
+Une seule graine pour tout le run aurait ruiné la mesure : les 25 répétitions d'une même
+amorce au même réglage seraient reparties du même état du générateur et auraient produit
+25 textes identiques. La diversité aurait valu zéro partout, et j'aurais conclu que tous
+les réglages sont dégénérés — alors que ce n'aurait été qu'un artefact de mon dispositif.
+
+**Reproductible ne veut pas dire identique.** Ça veut dire *rejouable* : relancer le
+programme redonne exactement les mêmes 24 020 textes, tous différents entre eux.
+
+J'avais proposé un compteur stocké dans un fichier. Le défaut n'était pas le compteur, mais
+sa persistance : un compteur qui survit entre les runs fait que le même programme lancé
+deux fois tire des graines différentes — ce qui détruit la reproductibilité au lieu de la
+donner. Et il place l'état du run dans un fichier extérieur que rien ne protège. Or
+l'identité d'un appel existe déjà dans la boucle : il n'y avait rien à stocker.
+
+La dérivation ne peut pas être une addition : 24 + 3 donne le même résultat que 23 + 4,
+alors que ces deux appels n'ont pas la même identité et ne devraient donc pas recevoir la
+même graine.
+
+**Le run raté**
+
+La température était modifiée par un facteur resté en place lors du passage d'une plage à
+une liste prédéfinie — celle que j'avais justement créée pour pouvoir l'enregistrer. Les
+températures employées n'étaient donc pas les bonnes : 0,16 à 0,64 au lieu de 0,4 à 1,6.
+Vingt-cinq minutes de run à jeter.
+
+Je l'ai vu en comparant la grille enregistrée aux valeurs présentes dans le fichier.
+
+> **Leçon** : lors d'un changement qui ne conserve pas la forme, ou qui paraît simplifier,
+> toujours regarder où cette modification peut avoir une répercussion, même minime.
+
+**Performance**
+
+Sortir le chargement du checkpoint de la boucle a rapporté plus que le coût du chargement
+lui-même — 0,21 s gagnées pour 0,12 s de lecture — parce qu'à l'intérieur de la boucle il
+allouait et libérait 141 Mo de VRAM à chaque appel, ce qui malmène l'allocateur bien au-delà
+du temps de lecture. Le run est passé de 2 h 04 à 34 min.
+
+Libérer de la mémoire vive n'aurait rien changé : rien n'était à l'étroit de ce côté-là.
+Le goulot est le calcul — mais pas celui qu'on croit. À chaque nouveau token je recalcule
+toute la séquence depuis le début : pour 100 tokens, cela fait 1+2+…+100 ≈ **5 050 passes
+de position au lieu de 100**, soit un facteur ~50 de travail perdu. Les clés et valeurs des
+positions déjà produites ne changent jamais ; les garder en cache rendrait chaque pas
+linéaire au lieu de quadratique.
+
+**Ce que les chiffres disent du modèle**
+
+Entraîner plus longtemps éloigne de l'optimum : aucun intérêt en performance, seulement en
+comparaison, et un risque de surapprentissage.
+
+Deux rapports à ne pas confondre :
+
+| | valeur | ce qui le fait baisser |
+|---|---|---|
+| tokens vus / paramètres | 29,8 (optimum ~20) | agrandir le modèle |
+| tokens vus / corpus | 3,25 époques | agrandir le corpus |
+
+On est déjà au-dessus de l'optimum en tokens par paramètre : il n'y a pas de temps de
+calcul supplémentaire à investir. La VRAM est très en dessous de son maximum, autour de
+30 %. C'est donc le **corpus** qui limite : l'agrandir fait baisser le nombre de relectures,
+et c'est lui qui permettra ensuite d'agrandir le modèle.
+`data/tinystories-raw-train.txt` fait 2,1 Go et je n'en utilise que 430 Mo.
+
+**Ce que les quatre défauts ont en commun**
+
+Ils sont tous liés à la reproductibilité et à la compréhension après coup. Quand je suis
+dans le code, je comprends, et je ne pense pas à la relecture du moi de dans une semaine.
+
+Mais ce cadre n'explique pas la température, qui m'a coûté vingt-cinq minutes le soir même,
+sans aucun problème de lisibilité. Le fil commun est plus mécanique :
+
+> **Chaque fois, une même information existait en deux exemplaires, et rien ne garantissait
+> qu'ils restent d'accord.** Le nom et le contenu. La donnée et le sous-titre tapé. La
+> graine appliquée et la graine enregistrée. La grille notée et la grille employée.
+
+D'où la règle : **ne jamais laisser un fait exister en deux exemplaires — le dériver de sa
+source, ou le vérifier automatiquement.** `textes_par_amorce` vaut `nb // taille` et non 25 ;
+le nombre d'amorces se compte au lieu de s'écrire. Ces deux-là ne peuvent plus mentir.
+
+La température montre la limite exacte de la règle : la source était bien unique, mais la
+boucle la transformait après coup. **Une source unique ne suffit pas si quelque chose modifie
+la valeur entre l'enregistrement et l'usage.** D'où le contrôle *annoncé contre employé*,
+qui est la version « vérifier » quand la version « dériver » est impossible.
+
+
 
 ---
 
