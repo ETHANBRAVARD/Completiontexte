@@ -207,7 +207,7 @@ if __name__ == '__main__':
             amorce=amorceliste[e%taille]
             for i in grille_k:
                 for j in grille_temperature:
-                    temp=j*0.4
+                    temp=j
                     cpt+=1
                     seed2=graine(seed,cpt)
                     topk[-1].append({'texte':genere(checkpoint,nombre_de_car,'topk',temp,amorce,i,seed=seed2),'amorce':amorce,'k':i,'temperature':temp,'cpt':cpt})
@@ -215,7 +215,7 @@ if __name__ == '__main__':
                     for j in grille_temperature:
                         cpt+=1
                         seed2=graine(seed,cpt)
-                        temp=j*0.4
+                        temp=j
                         topp[-1].append({'texte':genere(checkpoint,nombre_de_car,'topp',temp, amorce ,p=i,seed=seed2),'amorce':amorce,'p':i,'temperature':temp,'cpt':cpt})
         for i in range(taille):
             cpt+=1
