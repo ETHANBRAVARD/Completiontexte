@@ -134,6 +134,60 @@ tracer_compromis(repetition_p, inexistants_p,
                  f'runs/generation/compromis_topp_{date_run}.png', 'p',
                  sous_titre=sous_titre_p)
 
+sacs = defaultdict(Counter)
+
+for liste in gen['topk']:
+    for sous_liste in liste:
+        amorce=sous_liste['amorce']
+        k=sous_liste['k']
+        m=re.findall(r"[a-zA-Z][a-zA-Z']*", sous_liste['texte'].lower())
+        grams=[tuple(m[i:i+4]) for i in range(len(m)-3)]
+        sacs[amorce,k,round(sous_liste['temperature'],1)].update(grams)
+distincts={}
+total={}
+paquets = defaultdict(list)
+for cle in sacs:
+    distincts[cle]=(len(sacs[cle]))
+    total[cle]=sum(sacs[cle].values())
+tau=taux(distincts,total)
+for (etiquette, p1, p2), valeur in tau.items():
+    paquets[p1, p2].append(valeur)
+diversite_k = {cle: sum(v) / len(v) for cle, v in paquets.items()}
+
+sacs = defaultdict(Counter)
+for liste in gen['topp']:
+    for sous_liste in liste:
+        amorce=sous_liste['amorce']
+        p=sous_liste['p']
+        m=re.findall(r"[a-zA-Z][a-zA-Z']*", sous_liste['texte'].lower())
+        grams=[tuple(m[i:i+4]) for i in range(len(m)-3)]
+        sacs[amorce,p,round(sous_liste['temperature'],1)].update(grams)
+distincts={}
+total={}
+paquets = defaultdict(list)
+for cle in sacs:
+    distincts[cle]=(len(sacs[cle]))
+    total[cle]=sum(sacs[cle].values())
+tau=taux(distincts,total)
+for (etiquette, p1, p2), valeur in tau.items():
+    paquets[p1, p2].append(valeur)
+diversite_p = {cle: sum(v) / len(v) for cle, v in paquets.items()}
+
+nom_div   = f'diversite_topk_{date_run}'
+nom_div_p = f'diversite_topp_{date_run}'
+
+sauver(diversite_k, f'runs/generation/mesures_{nom_div}.json',
+       metrique='diversité de 4-grammes entre textes de même amorce',
+       amorces=4, textes_par_groupe=25,
+       checkpoint=chemin.name,
+       versions=VERSIONS)
+
+sauver(diversite_p, f'runs/generation/mesures_{nom_div_p}.json',
+       metrique='diversité de 4-grammes entre textes de même amorce',
+       amorces=4, textes_par_groupe=25,
+       checkpoint=chemin.name,
+       versions=VERSIONS)
+
 
     
     
