@@ -98,6 +98,19 @@ Mesuré à 250 pas, tout le reste égal :
 | post-norm | 6,3664 |
 | pre-norm complet | **5,0173** |
 
+L'effet se retrouve à la génération. Taux de mots inexistants en top-k à `T=1,2`, mesuré
+sur le banc d'essai du 15/08 (4 amorces × 100 répétitions, protocole antérieur à celui
+décrit plus bas) :
+
+| T=1,2 | k=3 | k=10 | k=20 | k=40 | k=80 |
+|---|---|---|---|---|---|
+| 2 blocs post-norm | 0,243 | 0,782 | 1,247 | 2,045 | 3,058 |
+| 6 blocs pre-norm | 0,534 | 0,458 | **0,678** | **1,724** | **2,267** |
+
+Là où le modèle prend des risques, il se trompe environ un tiers de fois moins. À `T=1,6`
+le gain disparaît : on échantillonne alors dans la queue de la distribution, et un
+meilleur modèle n'y aide pas.
+
 ### Run final — 12,39 M de paramètres
 
 dim 384 · 6 blocs · 4 têtes · contexte 384 · lot 32 · Adam écrit à la main ·
@@ -141,23 +154,41 @@ métrique écrite à ce jour ne les détecte.
 
 ### Banc d'essai des réglages d'échantillonnage
 
-4 800 textes générés sur une grille de réglages — 6 valeurs de `k`, 6 de `p`,
-4 températures, 4 amorces, 100 répétitions — puis deux mesures opposées : le taux de
-mots absents du corpus (26 107 mots distincts) et le taux de 4-grammes répétés à
-l'intérieur d'un même texte.
+24 020 textes générés sur une grille de réglages — 6 valeurs de `k`, 6 de `p`, 4
+températures, 20 amorces, 25 répétitions — puis **trois** mesures : le taux de mots absents
+du corpus (26 107 mots distincts), le taux de 4-grammes répétés à l'intérieur d'un même
+texte, et le taux de 4-grammes partagés **entre** les textes d'un même réglage.
 
-Effet du passage en pre-norm, taux de mots inexistants en top-k :
+Le fichier de génération porte sa provenance — checkpoint, pas, perplexité, graine de base
+et règle de dérivation, grilles réellement employées — et le run est rejouable à l'identique.
 
-| T | k=3 | k=10 | k=20 | k=40 | k=80 |
-|---|---|---|---|---|---|
-| 1,2 · 2 blocs | 0,243 | 0,782 | 1,247 | 2,045 | 3,058 |
-| 1,2 · 6 blocs | 0,534 | 0,458 | **0,678** | **1,724** | **2,267** |
+**Résultat principal : top-p dégénère beaucoup plus vite que top-k.**
 
-À `T=1,2`, là où le modèle prend des risques, il se trompe environ un tiers de fois
-moins. À `T=1,6` le gain disparaît : on échantillonne alors dans la queue de la
-distribution, et un meilleur modèle n'y aide pas.
+Taux de redite entre textes à `T=0,4`, en pourcentage de 4-grammes déjà vus dans un autre
+texte du même réglage :
 
-Deux enseignements de méthode, tous deux obtenus par la mesure et non par la lecture :
+| top-k | k=3 | k=5 | k=10 | k=20 | k=40 | k=80 |
+|---|---|---|---|---|---|---|
+| redite | 47,3 | 39,6 | 38,0 | 37,8 | 36,3 | 37,0 |
+
+| top-p | p=0,2 | p=0,4 | p=0,5 | p=0,6 | p=0,8 | p=0,9 |
+|---|---|---|---|---|---|---|
+| redite | **95,8** | 89,6 | 79,9 | 71,0 | 53,2 | 44,4 |
+
+À basse température, le noyau de top-p se referme sur une poignée de tokens et la même
+histoire ressort presque à chaque tirage. Top-k, qui garde un nombre fixe de candidats,
+ne descend jamais sous 36 %.
+
+Les réglages qui tiennent les trois critères ensemble :
+
+| | inexistants | répétition | redite |
+|---|---|---|---|
+| `k=5 · T=1,2` | 0,049 % | 0,335 % | 16,2 % |
+| `k=80 · T=0,8` | 0,185 % | 0,264 % | 14,0 % |
+| `p=0,6 · T=1,2` | 0,078 % | 0,388 % | 13,2 % |
+| `p=0,8 · T=0,8` | 0,018 % | 0,556 % | 21,4 % |
+
+Trois enseignements de méthode, tous obtenus par la mesure et non par la lecture :
 
 - **un défaut de top-p est resté invisible à la lecture.** L'implémentation prenait le
   token de la frontière au lieu d'échantillonner dans le noyau. Le texte paraissait
@@ -166,12 +197,12 @@ Deux enseignements de méthode, tous deux obtenus par la mesure et non par la le
 - **la moyenne est à queue lourde.** Un ou deux textes sur cent, entrés en boucle
   (*« and his hat and his hat and… »*), décident du chiffre d'une case entière. C'est la
   dégénérescence décrite par Holtzman et al., 2020 — l'article qui a introduit top-p,
-  précisément contre ça.
-
-> **À compléter :** une métrique de diversité. En son absence la table désigne
-> `p=0,2 · T=0,4`, qui obtient zéro sur les deux mesures existantes tout en produisant
-> cent fois la même histoire. Deux métriques opposées ne suffisent pas si elles
-> partagent un angle mort.
+  précisément contre ça ;
+- **deux métriques opposées ne suffisent pas si elles partagent un angle mort.** Le
+  réglage `p=0,2 · T=0,4` affiche 0,417 % de mots inexistants et 0,477 % de répétition,
+  des chiffres honorables — pour 95,8 % de redite. La troisième métrique était nécessaire
+  pour le voir ; elle montre au passage que le front de Pareto est sain, ce que les deux
+  premières ne pouvaient pas établir.
 
 ## Structure
 
