@@ -188,6 +188,9 @@ Les réglages qui tiennent les trois critères ensemble :
 | `p=0,6 · T=1,2` | 0,078 % | 0,388 % | 13,2 % |
 | `p=0,8 · T=0,8` | 0,018 % | 0,556 % | 21,4 % |
 
+`genere()` porte désormais `k=5 · T=1,2` par défaut. L'ancien défaut `k=3` était dominé
+sur les trois métriques à la fois.
+
 Trois enseignements de méthode, tous obtenus par la mesure et non par la lecture :
 
 - **un défaut de top-p est resté invisible à la lecture.** L'implémentation prenait le

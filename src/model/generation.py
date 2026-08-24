@@ -61,7 +61,7 @@ def layernorm(x, g, b):
     return (x-mean)/torch.sqrt(var+1e-5)*g+b
 
 
-def genere(checkpoint,nombre_de_car,mode,temp,amorce,k=3,p=0.9,seed=False): #mode= 'greedy' ou 'topk' ou 'topp'
+def genere(checkpoint,nombre_de_car,amorce,mode="topk",temp=1.2,k=5,p=0.9,seed=False): #mode= 'greedy' ou 'topk' ou 'topp'
     if seed:
         torch.manual_seed(seed)
     appareil=torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -210,17 +210,17 @@ if __name__ == '__main__':
                     temp=j
                     cpt+=1
                     seed2=graine(seed,cpt)
-                    topk[-1].append({'texte':genere(checkpoint,nombre_de_car,'topk',temp,amorce,i,seed=seed2),'amorce':amorce,'k':i,'temperature':temp,'cpt':cpt})
+                    topk[-1].append({'texte':genere(checkpoint,nombre_de_car,amorce,mode='topk',temp=temp,k=i,seed=seed2),'amorce':amorce,'k':i,'temperature':temp,'cpt':cpt})
             for i in grille_p:
                     for j in grille_temperature:
                         cpt+=1
                         seed2=graine(seed,cpt)
                         temp=j
-                        topp[-1].append({'texte':genere(checkpoint,nombre_de_car,'topp',temp, amorce ,p=i,seed=seed2),'amorce':amorce,'p':i,'temperature':temp,'cpt':cpt})
+                        topp[-1].append({'texte':genere(checkpoint,nombre_de_car,amorce,mode='topp',temp=temp,p=i,seed=seed2),'amorce':amorce,'p':i,'temperature':temp,'cpt':cpt})
         for i in range(taille):
             cpt+=1
             seed2=graine(seed,cpt)
-            greedy.append({'texte':genere(checkpoint,nombre_de_car,'greedy',1.0,amorceliste[i],seed=seed2),'amorce':amorceliste[i],'cpt':cpt})
+            greedy.append({'texte':genere(checkpoint,nombre_de_car,amorceliste[i],mode='greedy',temp=1.0,seed=seed2),'amorce':amorceliste[i],'cpt':cpt})
         POIDS = ['c', 'pos_emb', 'lnn_g', 'lnn_b', 'W_out', 'b_out',
                  'W_q', 'W_k', 'W_v', 'W_o', 'W_1', 'b_1', 'W_2', 'b_2',
                  'ln1_g', 'ln1_b', 'ln2_g', 'ln2_b']
