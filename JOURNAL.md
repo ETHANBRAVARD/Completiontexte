@@ -1644,6 +1644,65 @@ la valeur entre l'enregistrement et l'usage.** D'où le contrôle *annoncé cont
 qui est la version « vérifier » quand la version « dériver » est impossible.
 
 
+#### 28/08/2026 — SSM ou réseau « liquide » : pourquoi les modèles d'espace d'états
+
+> Discussion avec Claude, orientation pour après l'étape 5. Rien n'est écrit à ce jour.
+
+**Une racine commune.** Les deux familles décrivent un état caché qui évolue en temps
+continu, régi par une équation différentielle, puis discrétisée pour tourner sur une
+machine. C'est pour ça qu'elles se ressemblent de loin. Elles diffèrent sur **une seule
+propriété : la linéarité**.
+
+**Réseau liquide** (Hasani et al., 2021 ; forme close 2022). La constante de temps de
+chaque neurone dépend de l'entrée et de l'état courant — c'est le sens de « liquide » :
+la vitesse d'oubli varie selon ce qui est lu. Rien ne se réapprend, les poids sont figés
+comme ailleurs ; c'est l'échelle de temps qui est mouvante. Mais l'équation est **non
+linéaire en l'état** : pour connaître la mémoire à la position 384, il faut avoir enchaîné
+les 383 précédentes. Il faut *marcher*.
+
+**Modèle d'espace d'états** (S4, puis Mamba, 2023). `dh/dt = A·h + B·x`, **linéaire en
+l'état**. Une récurrence linéaire se replie algébriquement : toutes les positions se
+calculent d'un coup. Il *saute*. Autrement dit, il **s'entraîne comme une convolution et
+s'exécute comme une récurrence**.
+
+Mamba rend `A`, `B`, `C` dépendants de l'entrée — c'est exactement l'idée liquide, mais
+logée dans une structure linéaire pour que le parallélisme survive.
+
+**Ce que ça coûte, chiffré sur ma machine.** L'entraînement du transformer tourne à
+298 ms par pas, 149 min pour 30 000 pas. En version séquentielle, l'arithmétique est la
+même mais découpée en 384 lancements au lieu d'un : de l'ordre de **3× plus lent**, pas
+400×. Ce n'est pas rédhibitoire aujourd'hui — mais le surcoût **suit la longueur du
+contexte**, et allonger le contexte est justement un levier de l'étape 5. Un réseau
+liquide ajoute par-dessus un solveur d'équation différentielle, six sous-étapes par pas
+de temps.
+
+**C'est l'argument fondateur du transformer.** Vaswani et al. 2017 : la récurrence
+interdit de paralléliser à l'intérieur d'un exemple d'entraînement. Mon LSTM était déplié
+sur 9 lettres, mon transformer sur 384 — ce n'était pas un choix esthétique. Le SSM est
+la tentative de récupérer la mémoire d'une récurrence **sans** reperdre ce parallélisme.
+
+**Pourquoi le SSM pour ce projet**
+
+- remplacer l'attention par un SSM ne touche qu'**une couche** : embeddings, MLP,
+  layernorm, boucle d'entraînement et échantillonnage ne bougent pas. Une seule variable
+  change, la comparaison est honnête ;
+- S4 et Mamba ont des articles complets et du code de référence ; les modèles actuels de
+  Liquid AI ne sont pas documentés au point d'être réimplémentés ;
+- Mamba a été mesuré **sur du langage**, à cet ordre de grandeur. Les réseaux liquides ont
+  fait leurs preuves sur des capteurs et du pilotage, jamais sur le texte.
+
+**Ce que le liquide garde pour lui.** Sur des signaux continus à échantillonnage
+irrégulier — capteurs, séries médicales, contrôle — c'est la bonne famille, et elle
+battrait un SSM sur ce pour quoi elle a été conçue. Ce n'est pas mon terrain.
+
+**Ce que l'écriture d'un SSM apprendrait, et que le transformer ne peut pas enseigner**
+
+- **le masque causal disparaît** : une récurrence ne *peut pas* voir le futur. On comprend
+  alors pourquoi l'attention avait besoin d'un masque — parce qu'elle voit tout par défaut ;
+- **le cache clés-valeurs n'existe plus** : l'état est de taille fixe, produire le 384ᵉ
+  token coûte autant que le premier. Le facteur ~50 de recalcul mesuré le 23/08 sur ma
+  génération est un problème que cette architecture n'a pas.
+
 
 ---
 
