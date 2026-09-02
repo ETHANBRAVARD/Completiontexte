@@ -18,6 +18,12 @@ sienne remplace la compréhension par de la reconnaissance de forme.
 | 8 | Sennrich et al. 2016 | 5 | avant |
 | 9 | Eldan & Li 2023 (*TinyStories*) | 5 | avant, pour dimensionner |
 | 10 | Hoffmann et al. 2022 (*Chinchilla*) | 5 | avant, pour le budget de tokens |
+| 11 | Holtzman et al. 2020 (*Degeneration*) | 4 → 5 | avant le banc d'essai |
+| 12 | Gu & Dao 2023 (*Mamba*) | après 5 | avant d'écrire un SSM |
+| 13 | Hasani et al. 2021 (*Liquid Time-constant*) | après 5 | pour savoir ce qu'on écarte |
+| 14 | Wei et al. 2022 (*Chain-of-Thought*) | après 5 | avant, pour cadrer la question |
+| 15 | Lee et al. 2023 (*Teaching Arithmetic*) | après 5 | avant, c'est lui qui rend l'essai faisable |
+| 16 | Hao et al. 2024 (*Coconut*) | après 5 | avant d'écrire le rebouclage latent |
 
 ---
 
@@ -234,6 +240,113 @@ quand elle est piquée, là où un `k` fixe impose la même largeur dans les deu
 suffit à juger un décodage. Le piège rencontré ici en est l'illustration — `p=0.2, T=0.4`
 obtient zéro sur les deux métriques mesurées (répétition, mots inexistants) tout en
 produisant cent fois la même histoire, faute d'une mesure de diversité.
+
+---
+
+## 12. Gu & Dao (2023) — *Mamba: Linear-Time Sequence Modeling with Selective State Spaces*
+
+arXiv:2312.00752.
+
+**Candidat pour l'étape d'après.** Le problème posé : un transformer paie l'attention en
+O(T²) et traîne un cache qui grossit à la génération ; une récurrence est en O(T) mais
+refuse de se paralléliser à l'entraînement. Un modèle d'espace d'états cherche les deux
+à la fois.
+
+Le mécanisme tient à une propriété : `dh/dt = A·h + B·x` est **linéaire en l'état**. Une
+récurrence linéaire se replie algébriquement — toutes les positions se calculent d'un
+coup à l'entraînement, tandis que la génération garde un état de taille fixe. D'où la
+formule : il s'entraîne comme une convolution et s'exécute comme une récurrence.
+
+L'apport propre de Mamba est de rendre `A`, `B`, `C` dépendants de l'entrée — la
+*sélectivité*. Cela casse la convolution, remplacée par un balayage parallèle.
+
+Prérequis : **S4** (Gu, Goel & Ré, 2022, arXiv:2111.00396), dont il suffit de lire la
+motivation ; la théorie HiPPO peut attendre une seconde lecture. Dans Mamba,
+l'introduction et la section 3 suffisent à en écrire un — la partie « hardware-aware »
+décrit leur noyau CUDA, pas l'algorithme.
+
+**À lire avant d'écrire**, contrairement à nanoGPT : c'est une architecture qu'on n'a
+pas, pas une version d'une architecture qu'on a déjà écrite.
+
+---
+
+## 13. Hasani, Lechner, Amini, Rus & Grosu (2021) — *Liquid Time-constant Networks*
+
+AAAI 2021, arXiv:2006.04439. Suite : *Closed-form continuous-time neural networks*,
+Nature Machine Intelligence, 2022.
+
+**À lire pour savoir ce qu'on écarte, et pourquoi.** La constante de temps de chaque
+neurone dépend de l'entrée et de l'état courant : la vitesse d'oubli varie selon ce qui
+est lu. Rien ne se réapprend au lancement — les poids sont figés comme partout ailleurs ;
+c'est l'échelle de temps qui est mouvante, et le nom « liquide » prête à confusion sur ce
+point.
+
+Le prix de cette expressivité : l'équation est **non linéaire en l'état**, donc les pas
+doivent s'enchaîner un par un, à l'entraînement comme à l'inférence. La version en forme
+close de 2022 supprime le solveur numérique, pas la séquentialité.
+
+Son terrain est celui des signaux continus à échantillonnage irrégulier — capteurs,
+séries médicales, contrôle ; leur résultat le plus connu est un pilotage automobile avec
+19 neurones. Sur du texte régulièrement tokenisé, cet avantage n'est jamais exercé.
+
+Le raisonnement complet de la mise à l'écart est dans `JOURNAL.md`, entrée du 28/08/2026.
+Sections 1 à 3 suffisantes.
+
+---
+
+## 14. Wei et al. (2022) — *Chain-of-Thought Prompting Elicits Reasoning in LLMs*
+
+NeurIPS 2022, arXiv:2201.11903.
+
+**La référence du mode de raisonnement « avec mots ».** Demander au modèle de produire
+les étapes intermédiaires avant sa réponse améliore nettement les tâches de raisonnement.
+
+Le point qui compte ici est la réserve, pas le résultat : le gain **n'apparaît qu'au-delà
+d'un seuil d'échelle**, et en dessous la chaîne de pensée dégrade les performances. À
+12 M de paramètres, la reproduire directement n'a pas de sens.
+
+Et le blocage n'est pas que la taille : TinyStories ne contient aucune étape
+intermédiaire. On ne peut pas comparer deux modes de raisonnement sur des données qui
+n'en demandent aucun. La sortie est de changer de tâche, pas d'échelle — voir l'entrée 15.
+
+---
+
+## 15. Lee, Sreenivasan, Lee, Lee & Papailiopoulos (2023) — *Teaching Arithmetic to Small Transformers*
+
+arXiv:2307.03381.
+
+**C'est cette entrée qui rend l'expérience faisable à cette échelle.** De petits
+transformers apprennent l'addition à plusieurs chiffres — à condition que le **format des
+données** expose les étapes. Le choix de représentation pèse plus que la taille du modèle.
+
+Conséquence directe : l'effet de la chaîne de pensée est reproductible sur un problème
+qui se décompose réellement, avec un modèle de la taille du sien. La comparaison devient
+
+| entraînement | ce que le modèle voit |
+|---|---|
+| sans raisonnement | `entrée → réponse` |
+| avec mots | `entrée → étapes → réponse` |
+| sans mots | `entrée →` rebouclage de l'état caché, puis réponse (entrée 16) |
+
+Avantage pratique : le corpus se génère, donc il est en zone verte, gratuit, infini, et la
+difficulté se règle exactement.
+
+---
+
+## 16. Hao et al. (2024) — *Training Large Language Models to Reason in a Continuous Latent Space* (Coconut)
+
+arXiv:2412.06769.
+
+**Le mode de raisonnement « sans mots ».** Au lieu de décoder un token à chaque étape de
+raisonnement, on réinjecte le dernier état caché comme embedding d'entrée du pas suivant :
+le raisonnement reste dans l'espace continu et n'est jamais verbalisé.
+
+Pour la comparaison, c'est la bonne forme : même modèle, même tâche, **une seule
+modification dans la boucle de génération**. Une variable change.
+
+Réserve honnête : leurs résultats portent sur de gros modèles. À petite échelle, sur une
+tâche synthétique, la question est ouverte — c'est précisément ce qui rend l'expérience
+intéressante plutôt que confirmatoire.
 
 ---
 
