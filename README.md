@@ -38,6 +38,19 @@ que je n'ai pas écrit serait un échec du projet.
 | 3 | RNN puis LSTM | cellule récurrente, BPTT | ✅ 29/07/2026 |
 | 4 | Transformer décodeur | attention causale, multi-têtes, blocs résiduels | ✅ 17/08/2026 |
 | 5 | Tokenizer BPE + passage à l'échelle | BPE, entraînement long, lots | 🔄 en cours |
+| 6 | Transformer contre modèle d'espace d'états | récurrence linéaire, balayage parallèle | 🔭 piste |
+| 7 | Raisonnement : en mots contre latent, sur tâche synthétique | rebouclage de l'état caché, corpus généré | 🔭 piste |
+| 8 | Substrat analogique : quantification, bruit, crossbar | quantification des poids, injection de bruit | 🔭 branche latérale |
+
+Les étapes 6 à 8 sont des **branches, pas une suite** — elles s'ouvrent une fois que la 5
+tourne, dans l'ordre qu'on veut.
+
+La **6** est la moins chère : remplacer l'attention par un SSM ne touche qu'une couche,
+tout le reste du fichier est identique, donc la comparaison n'a qu'une variable. La **7**
+exige un corpus nouveau — TinyStories ne contient aucune étape intermédiaire à raisonner ;
+il se génère, donc il est gratuit. La **8** est latérale : elle enseigne le substrat de
+calcul plutôt que les modèles de langue, et sa première question se règle entièrement en
+logiciel — mes poids survivent-ils à 6 bits bruités ?
 
 ## Résultats
 

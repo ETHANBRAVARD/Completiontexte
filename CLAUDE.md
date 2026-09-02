@@ -151,8 +151,16 @@ de chaque étape, Ethan écrit dans `JOURNAL.md` ce qu'il a compris, sans relire
 | 3 | RNN puis LSTM | cellule récurrente, BPTT | mémoire, gradient qui explose/s'évanouit |
 | 4 | Attention → transformer décodeur | attention causale, multi-têtes, blocs | pourquoi l'attention remplace la récurrence |
 | 5 | Tokenizer BPE + passage à l'échelle | BPE, entraînement long | lois d'échelle, budget de tokens, régularisation |
+| 6 | Modèle d'espace d'états contre transformer | récurrence linéaire, balayage parallèle, sélectivité | pourquoi le parallélisme d'entraînement décide de l'architecture ; ce que l'attention coûte vraiment |
+| 7 | Modes de raisonnement, sur tâche synthétique | rebouclage de l'état caché, format des données | ce qu'une chaîne d'étapes apporte et à quelle échelle ; raisonner en mots contre en continu |
+| 8 | Substrat analogique | quantification des poids, injection de bruit | combien de bits les poids portent réellement |
 
 Étapes 0–2 = « compléter un mot ». Étapes 3–5 = « compléter plusieurs mots ».
+
+Étapes 6–8 = **branches**, pas une suite : elles s'ouvrent après que la 5 tourne, dans
+l'ordre choisi. La 8 est latérale — elle porte sur le substrat de calcul, pas sur les
+modèles de langue ; sa première question (quantification, bruit) se traite en logiciel,
+avant tout simulateur de circuit.
 
 ## 5. Environnement et budget machine
 
