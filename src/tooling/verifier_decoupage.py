@@ -19,7 +19,9 @@ transformera en gain de vitesse.
 """
 
 import argparse
+import itertools
 import sys
+import tempfile
 from collections import Counter
 from pathlib import Path
 
@@ -50,10 +52,29 @@ def premiere_divergence(a, b):
     return n if len(a) != len(b) else None
 
 
+def appeler(decouper, texte):
+    """Appelle decouper, qu'il attende une chaîne ou un chemin de fichier.
+
+    Un générateur ne lève rien à l'appel : on sonde le premier élément pour
+    savoir quelle signature convient, puis on le remet en tête.
+    """
+    f = tempfile.NamedTemporaryFile("w", suffix=".txt", encoding="utf-8", delete=False)
+    f.write(texte); f.close()
+    try:                                   # 1. signature « chemin »
+        it = iter(decouper(f.name))
+        try:
+            premier = next(it)
+        except StopIteration:
+            return []
+        return itertools.chain([premier], it)
+    except (OSError, TypeError, ValueError):
+        return decouper(texte)             # 2. signature « chaîne »
+
+
 def verifier(decouper, texte, nom_source):
     print(f"\n  source : {nom_source}  ({len(texte):,} caractères)".replace(",", " "))
 
-    unites = decouper(texte)
+    unites = appeler(decouper, texte)
     if not isinstance(unites, (list, tuple)):
         try:
             unites = list(unites)          # générateur : on matérialise pour le test
@@ -122,7 +143,7 @@ def main(argv=None):
     print("\n  === cas limites ===")
     for t, libelle in limites:
         try:
-            r = "".join(decouper(t))
+            r = "".join(appeler(decouper, t))
             etat = "OK" if r == t else f"ÉCHEC — rend {r!r}"
         except Exception as e:  # noqa: BLE001
             etat = f"ÉCHEC — {type(e).__name__}: {e}"

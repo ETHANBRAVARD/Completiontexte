@@ -4,15 +4,19 @@
 import json
 cheminbpe="data/tokenizer/bpe.json"
 chemin="data/stories.train.txt" 
-def decouper(texte):
-    mot=''
-    for lettre in texte:
-        if lettre == ' ' or lettre =='\n':
-            yield mot
-            mot= lettre
-        else:
-            mot+=lettre
-    yield mot
+def decouper(chemin):
+    with open(chemin, 'r', encoding='utf-8') as f:
+        texte = f.read(100)
+        mot=''
+        while texte:
+            for lettre in texte:
+                if lettre == ' ' or lettre =='\n':
+                    yield mot
+                    mot= lettre
+                else:
+                    mot+=lettre
+            texte = f.read(100)
+        yield mot
 
 
 def tokkenisation(mot,bpe,bpeset):
@@ -37,23 +41,22 @@ def tokkenisation(mot,bpe,bpeset):
     return mot2
 
 def encode(chemin, cheminbpe,way= 'data/encode.json'):
-    with open(cheminbpe, 'r', encoding='utf-8') as f:
-        bpe = json.load(f)
-    bpeset=set(bpe['alphabet'])
-    encode = open(chemin, 'r', encoding='utf-8').read()
-    encode=decouper(encode)
     encode2=[]
     dejavue={}
     flag=True
-    for mot in encode:
-        if flag:
-            mot=' '+mot
-            flag=False
-        if mot in dejavue:
-            encode2.extend(dejavue[mot])
-        else:
-            dejavue[mot]=tokkenisation(mot,bpe,bpeset)
-            encode2.extend(dejavue[mot])
+    with open(cheminbpe, 'r', encoding='utf-8') as f:
+        bpe = json.load(f)
+        bpeset=set(bpe['alphabet'])
+        encode=decouper(chemin)
+        for mot in encode:
+            if flag:
+                mot=' '+mot
+                flag=False
+            if mot in dejavue:
+                encode2.extend(dejavue[mot])
+            else:
+                dejavue[mot]=tokkenisation(mot,bpe,bpeset)
+                encode2.extend(dejavue[mot])
     retour={'encode':encode2}
     with open(way, "w", encoding="utf-8") as f:
         json.dump(retour, f,ensure_ascii=False)
