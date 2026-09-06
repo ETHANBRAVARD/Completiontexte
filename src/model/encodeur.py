@@ -6,15 +6,14 @@ cheminbpe="data/tokenizer/bpe.json"
 chemin="data/stories.train.txt" 
 def decouper(texte):
     mot=''
-    texte2=[]
     for lettre in texte:
         if lettre == ' ' or lettre =='\n':
-            texte2.append(mot)
+            yield mot
             mot= lettre
         else:
             mot+=lettre
-    texte2 . append(mot)
-    return(texte2)
+    yield mot
+
 
 def tokkenisation(mot,bpe,bpeset):
     mot2=[]

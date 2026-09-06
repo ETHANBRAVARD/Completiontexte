@@ -82,6 +82,12 @@ def executer(bac, corpus, bpe, libelle):
 
     contenu = json.loads(produits[0].read_text(encoding="utf-8"))
     tokens = contenu["encode"] if isinstance(contenu, dict) else contenu
+    if tokens and isinstance(tokens[0], int):
+        # sortie en indices : on repasse par le vocabulaire pour comparer des tokens
+        vocab = json.loads((RACINE / "data" / "tokenizer" / "bpe_liste.json")
+                           .read_text(encoding="utf-8"))
+        print(f"  {libelle} rend des indices — traduits via bpe_liste.json ({len(vocab)} tokens)")
+        tokens = [vocab[i] for i in tokens]
     if r.stdout.strip():
         print(f"  {libelle} a aussi affiché : {r.stdout.strip()[:200]}")
     return tokens, dt

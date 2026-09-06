@@ -55,8 +55,12 @@ def verifier(decouper, texte, nom_source):
 
     unites = decouper(texte)
     if not isinstance(unites, (list, tuple)):
-        raise SystemExit(f"  la fonction rend un {type(unites).__name__}, "
-                         f"or on attend une liste d'unités.")
+        try:
+            unites = list(unites)          # générateur : on matérialise pour le test
+            print("  (la fonction est un générateur — matérialisé pour la vérification)")
+        except TypeError:
+            raise SystemExit(f"  la fonction rend un {type(unites).__name__} "
+                             f"non parcourable ; on attend des unités.")
     non_texte = [u for u in unites[:1000] if not isinstance(u, str)]
     if non_texte:
         raise SystemExit(f"  les unités doivent être des chaînes ; "
