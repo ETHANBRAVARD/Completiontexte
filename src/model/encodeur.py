@@ -4,38 +4,59 @@
 import json
 cheminbpe="data/tokenizer/bpe.json"
 chemin="data/stories.train.txt" 
-def encode(chemin, cheminbpe):
+def decouper(texte):
+    mot=''
+    texte2=[]
+    for lettre in texte:
+        if lettre == ' ' or lettre =='\n':
+            texte2.append(mot)
+            mot= lettre
+        else:
+            mot+=lettre
+    texte2 . append(mot)
+    return(texte2)
+
+def tokkenisation(mot,bpe,bpeset):
+    mot2=[]
+    lettre_non_reconnu=set()
+    for lettre in mot:
+        if lettre not in bpeset :
+            lettre_non_reconnu.add(lettre)
+        if lettre_non_reconnu:
+            print('lettres non reconnues :',lettre_non_reconnu)
+            exit()
+        mot2.append(lettre)
+    for fusion in bpe['fusions']: 
+        i=0
+        while i < len(mot2):
+            car=mot2[i]
+            if i<len(mot2)-1:
+                if car == fusion[0] and mot2[i+1] == fusion[1]:
+                    mot2[i]=fusion[0]+fusion[1]
+                    del mot2[i+1]
+            i+=1
+    return mot2
+
+def encode(chemin, cheminbpe,way= 'data/encode.json'):
     with open(cheminbpe, 'r', encoding='utf-8') as f:
         bpe = json.load(f)
     bpeset=set(bpe['alphabet'])
     encode = open(chemin, 'r', encoding='utf-8').read()
-    séparateur=['[',']']
-    if séparateur[0] in bpe['alphabet'] or séparateur[1] in bpe['alphabet']:
-        print('change de séparateur')
-        exit()
-    encode2=[séparateur[0]+' '+séparateur[1]]
-    lettre_non_reconnu=set()
-    for lettre in encode:
-        if lettre not in bpeset :
-            lettre_non_reconnu.add(lettre)
-        encode2.append(séparateur[0]+lettre+séparateur[1])
-    encode2=''.join(encode2)
-    if lettre_non_reconnu:
-        print('lettres non reconnues :',lettre_non_reconnu)
-        exit()
-    for fusion in bpe['fusions']: 
-        encode2 =encode2.replace('['+fusion[0]+']'+'['+fusion[1]+']', '['+fusion[0]+fusion[1]+']')
-    encode3=[]
-    i=0
-    for car in encode2:
-        if car == '[':
-            j=1
-            while encode2[i+j] != ']':
-                j+=1
-            encode3.append(encode2[i+1:i+j])
-        i+=1
-    retour={'encode':encode3}
-    with open("data/encode.json", "w", encoding="utf-8") as f:
+    encode=decouper(encode)
+    encode2=[]
+    dejavue={}
+    flag=True
+    for mot in encode:
+        if flag:
+            mot=' '+mot
+            flag=False
+        if mot in dejavue:
+            encode2.extend(dejavue[mot])
+        else:
+            dejavue[mot]=tokkenisation(mot,bpe,bpeset)
+            encode2.extend(dejavue[mot])
+    retour={'encode':encode2}
+    with open(way, "w", encoding="utf-8") as f:
         json.dump(retour, f,ensure_ascii=False)
 
 if __name__ == "__main__":
