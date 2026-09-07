@@ -220,12 +220,59 @@ Trois enseignements de méthode, tous obtenus par la mesure et non par la lectur
   pour le voir ; elle montre au passage que le front de Pareto est sain, ce que les deux
   premières ne pouvaient pas établir.
 
+### L'encodeur : de deux heures à cinq minutes, et de 28 Go à 1,3
+
+Le corpus était le facteur limitant identifié le 23/08 : 450 Mo utilisés sur les 2,2 Go
+disponibles, 29,8 tokens vus par paramètre là où l'optimum de Chinchilla en demande 20.
+Impossible d'agrandir le modèle sans relire le corpus davantage et surapprendre.
+
+Ce qui bloquait n'était pas le modèle mais la chaîne d'encodage, et pour deux raisons
+distinctes — le temps, puis la mémoire.
+
+**Le temps : la mémoïsation.** L'encodeur appliquait les 2 000 règles de fusion à tout le
+corpus. Or un texte de 25 Mo ne contient que 39 229 mots distincts pour 4,99 millions
+d'occurrences : chaque mot y revient 127 fois en moyenne, et son découpage ne dépend que
+de lui-même. Une table mot → tokens réduit le travail réel d'un facteur 127.
+
+Cette équivalence n'est valable que parce qu'aucune fusion ne peut chevaucher une
+frontière de mot. La garantie tient à la façon dont les paires sont formées à
+l'entraînement : le second membre d'une règle n'est jamais en tête de mot, donc ne porte
+jamais l'espace initial. Vérifié sur le vocabulaire — 1 424 règles dont le premier membre
+commence par un espace, **zéro** pour le second.
+
+**La mémoire : trois passages en flux.** La mémoïsation seule ne suffisait pas — le corpus
+entier restait en mémoire sous forme d'objets Python. Mesuré sur 100 Mo, à chaque étape :
+
+| | RAM par Mo de corpus | pour 2,2 Go |
+|---|---|---|
+| encodeur mémoïsé | 12,9 | 28 Go |
+| découpage en générateur | 3,1 | 6,8 Go |
+| lecture du corpus par blocs | 2,2 | 4,8 Go |
+| sortie binaire `uint16` | **0,9** | **~1,3 Go** |
+
+La dernière ligne fait disparaître `rencode.py`, l'étape de conversion token → entier qui
+réclamait à elle seule 28 Go pour 500 M de tokens. Les indices sont désormais stockés dans
+la table de mémoïsation — la conversion se fait une fois par mot distinct, 67 000 fois au
+lieu de 560 millions — écrits par tampons dans un binaire brut, puis relus en une passe
+pour produire le `.npy`.
+
+**Ce que ça donne** : réencoder les 450 Mo prend 156 s contre ~2 h, et les 2,2 Go tiennent
+en ~25 min et 1,3 Go de RAM.
+
+La contrainte tout du long était de ne rien changer à la tokenisation. Trois vérificateurs
+écrits en zone verte l'ont garantie : réversibilité du découpage, tokenisation d'un mot
+isolé contre la référence (5 397/5 397 mots distincts), et comparaison de l'encodeur entier
+à sa version committée. Les 126 150 131 tokens des trois splits sortent **identiques,
+entier pour entier**, à ceux produits en août.
+
 ## Structure
 
 ```
 src/model/      🔴 bigram, rnn, lstm, transformer, encodeur/decodeur BPE, tireur_de_lot,
                    generation (greedy/top-k/top-p), Vocabulaire, analyse_generation
-src/tooling/    🟢 tracer.py — tracés, palette, sérialisation des mesures
+src/tooling/    🟢 tracer.py — tracés et mesures ; quatre vérificateurs de la chaîne
+                   d'encodage (découpage, tokenisation d'un mot, encodeur entier,
+                   fichiers de tokens entiers)
 scripts/        🟢 préparation des corpus, encodage à grande échelle, splits
 notes/biblio.md    bibliographie annotée
 JOURNAL.md         journal d'apprentissage, un compte rendu par étape
@@ -240,6 +287,9 @@ Depuis la racine du dépôt, dans cet ordre. Chaque étape lit ce que la précé
 ```bash
 # 1. tokenizer BPE : fusions, vocabulaire, encodage, splits, vérifications
 python3 scripts/tokenizer.py --fusions 2000
+
+# 1 bis. encodage des trois splits en tokens entiers (~3 min pour 500 Mo)
+#        encodeur.encode() écrit directement data/encode_tok_<split>.npy
 
 # 2. liste des mots du corpus, pour l'analyse (26 107 mots, ~60 s)
 python3 src/model/Vocabulaire.py

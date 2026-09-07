@@ -1706,6 +1706,232 @@ battrait un SSM sur ce pour quoi elle a été conçue. Ce n'est pas mon terrain.
 
 ---
 
+#### 06-07/09/2026 — l'encodeur : mémoïsation, puis passage en flux
+
+> Log factuel tenu par Claude. Rubrique de compréhension dictée par Ethan en réponse à
+> quinze questions, puis mise au propre par Claude — le fond et les erreurs sont les
+> siens, la rédaction est partagée.
+
+**Le point de départ.** Le bilan du 23/08 désignait le corpus comme facteur limitant :
+450 Mo utilisés sur 2,2 Go, 29,8 tokens vus par paramètre contre 20 à l'optimum. Le
+verrou n'était pas le modèle mais la chaîne d'encodage, pour deux raisons successives.
+
+**La mémoïsation.** Le découpage d'un mot ne dépend que de lui-même : sur 25 Mo, 39 229
+mots distincts pour 4,99 M d'occurrences, soit une redondance de 127×. Une table
+mot → tokens ramène le travail à 0,8 % de ce qu'il était.
+
+La validité repose sur une propriété du vocabulaire : aucune fusion ne peut chevaucher une
+frontière de mot. Ethan l'a d'abord attribuée à « l'absence d'espace interne dans les
+tokens » — vrai mais insuffisant, puisque `' the'` n'a pas d'espace interne et en porte un
+en tête. Mesuré sur les 2 000 règles : 1 424 dont le **premier** membre commence par un
+espace, **zéro** pour le second. C'est ce zéro qui ferme l'argument, et il est structurel.
+
+**Trois passages en flux.** La mémoïsation seule laissait le corpus entier en mémoire.
+Mesures propres sur 100 Mo, un processus par version :
+
+| | RAM/Mo | 2,2 Go | commit |
+|---|---|---|---|
+| mémoïsé, `decouper` rend une liste | 12,9 | 28 Go | `1ed0971` |
+| `decouper` générateur | 3,1 | 6,8 Go | `69f90a0` |
+| lecture du corpus par blocs | 2,2 | 4,8 Go | `ccf6e7c` |
+| sortie binaire `uint16` | 0,9 | ~1,3 Go | `cdb6fa1` |
+
+La dernière ligne supprime `rencode.py` — renommé `OBSOLETE_rencode.py` — qui réclamait
+28 Go pour 500 M tokens. Les indices sont rangés dans la table de mémoïsation : 67 000
+conversions au lieu de 560 millions.
+
+**Résultat** : 450 Mo réencodés en 156 s contre ~2 h ; les 2,2 Go tiennent en ~25 min.
+
+**Le dispositif de vérification** (zone verte). Quatre outils, écrits avant les
+modifications qu'ils devaient garder :
+
+- `verifier_decoupage.py` — réversibilité du découpage, cas limites, redondance ;
+- `essayer_tokkenisation.py` — un mot isolé contre la référence, en redécoupant la sortie
+  de l'encodeur committé. 5 397/5 397 mots distincts ;
+- `comparer_encodeurs.py` — l'encodeur entier contre sa version git, token pour token ;
+- `verifier_rencode.py` — les `.npy` contre ceux d'août, entier pour entier.
+
+Le troisième a servi de garde-fou permanent : chaque modification devait ressortir
+`IDENTIQUE`. Les 126 150 131 tokens des trois splits le sont.
+
+**Trois familles de bugs, revenues en boucle** *(observé pendant la session)* :
+
+- **liste contre chaîne** — accumuler dans une liste puis appliquer `.replace` dessus,
+  quatre fois de suite ; parcourir une liste avec du code écrit pour une chaîne
+  (`for car in mot2` où `car` vaut `'[t]'`, jamais `'['`) ;
+- **indice contre valeur** — `for car in mot2` donne la valeur, pas la position ; un
+  compteur tenu à côté s'est désynchronisé, testant une position mobile et écrivant
+  toujours à la position 0 ;
+- **parcourir contre modifier** — `del` pendant un `for`, puis l'inverse : `append` sur la
+  liste en cours de parcours, qui fait resservir par la boucle ce qu'on vient d'y déposer.
+
+Deux autres, plus ponctuelles : un `yield` placé à chaque lettre au lieu de chaque mot
+complet, et un compteur incrémenté sous condition — donc capable de ne plus avancer du
+tout, d'où une boucle infinie.
+
+**Ce que la mesure a corrigé.** Trois de mes estimations étaient fausses, toutes dans le
+sens pessimiste, et toutes parce que le banc de mesure chargeait lui-même le corpus avant
+d'appeler l'encodeur : 13 puis 8 Mo/Mo annoncés là où un processus dédié en mesurait 3,1
+puis 2,2. Corollaire : *un instrument qui partage l'environnement de ce qu'il mesure
+mesure aussi l'instrument.*
+
+**Point expliqué par Claude, à retenir : auto-descriptif contre appendable.**
+
+Un format qui porte sa structure dans des délimiteurs ne peut pas être prolongé ; un
+format dont la structure est implicite, si.
+
+- **JSON** contient exactement une valeur, terminée par `]` ou `}`. Écrire après le
+  terminateur place des octets hors de la valeur — c'est l'`Extra data` du 11/08.
+- **Le binaire brut** n'a ni en-tête, ni séparateur, ni fin : la structure est portée par
+  la largeur fixe de chaque valeur. Deux morceaux d'`uint16` concaténés forment un fichier
+  d'`uint16` valide. Le prix : le fichier ne se décrit pas, il faut connaître le `dtype`
+  de l'extérieur — se tromper donne des nombres plausibles et faux.
+- **`.npy`** réintroduit un en-tête de 128 octets décrivant forme et type. C'est ce qui le
+  rend auto-descriptif, et ce qui l'empêche d'être prolongé.
+
+D'où la structure en deux temps de l'encodeur : binaire brut pendant la boucle, `.npy` en
+une passe à la fin. **Auto-descriptif et appendable sont contradictoires** — un format ne
+peut pas se refermer proprement et rester ouvert.
+
+**Rubrique de compréhension**
+
+*Rédigé à partir de mes réponses aux questions de Claude, sans relire le code. Je note
+aussi ce que je n'ai pas su répondre : c'est là que je devrai revenir.*
+
+**La mémoïsation : rentable et correcte sont deux questions différentes.**
+
+Ma première réponse a été « les mots reviennent souvent, donc on gagne du temps ». C'est
+vrai, mais ça répond à *pourquoi c'est rentable*, pas à *pourquoi c'est permis*. Une table
+peut être très rentable et parfaitement fausse.
+
+Ce qui l'autorise, c'est que le découpage d'un mot ne dépend **que du mot** : ni de sa
+position, ni de ce qui l'entoure, ni du nombre de fois qu'il est déjà passé. Une fonction
+sans mémoire se met en table ; une fonction qui dépend de son passé, jamais. C'est
+exactement la frontière avec le transformer : on ne peut pas mémoïser « ce qui suit le mot
+*chat* », et c'est même tout le travail de l'attention causale.
+
+Un cas dans mon propre code où la position comptait : le premier mot du corpus, qui ne
+porte aucun séparateur et à qui j'en ajoute un. Je l'ai neutralisé en faisant porter
+l'espace par la clé de la table.
+
+**Pourquoi aucune fusion ne peut chevaucher une frontière de mot.** J'ai mis plusieurs
+essais à formuler ça correctement. J'ai d'abord dit « les tokens n'ont pas d'espace
+interne » — vrai, mais insuffisant : `' the'` n'a pas d'espace interne et en porte un en
+tête. Puis « on exclut les espaces » — faux : 1 424 fusions sur 2 000 ont un premier membre
+qui commence par un espace.
+
+La formulation juste porte sur la **position dans la paire**, pas sur la forme des tokens :
+une fusion assemble deux symboles adjacents à l'intérieur d'un mot ; le second a toujours
+quelque chose devant lui, donc n'est jamais en position 0, donc ne porte jamais l'espace
+initial. Ça découle de la procédure d'entraînement, pas de ce vocabulaire-là — donc ça
+vaudra pour tous ceux que je réentraînerai.
+
+**Pourquoi 15× et pas 127×.** La redondance mesurée est de 127, le gain final de ~15. Deux
+raisons, et j'en avais trouvé une : le coût par occurrence ne disparaît jamais — parcourir
+5 millions de mots et consulter la table reste linéaire, et à 24 Mo ce terme domine déjà.
+
+Celle que je n'avais pas vue : sur un mot **inédit**, ma version est plus *lente* que
+l'ancienne. L'ancienne applique les règles avec `str.replace`, écrit en C ; la mienne fait
+une boucle Python. Je ne gagne que parce que je le fais 127 fois moins souvent. Le facteur
+final est le produit de deux effets qui tirent en sens contraire, ce qui explique qu'il
+grandisse avec le corpus : le vocabulaire croît beaucoup plus lentement que le texte.
+
+**Le générateur.** Une fonction qui *rend* une liste la construit en entier ; une fonction
+qui *produit* n'a jamais qu'une valeur à la fois en mémoire. La liste n'existe pas. Que la
+fonction produise 3 valeurs ou 441 millions, l'empreinte est la même.
+
+Un seul parcours suffisait parce que la table se remplit **en avançant** : rien dans ma
+boucle ne regarde en arrière ni en avant. Ce que je n'avais pas vu : si j'avais mis deux
+boucles — une pour compter, une pour encoder — la seconde n'aurait rien trouvé. Pas
+d'erreur, pas de message : un générateur épuisé se comporte comme une séquence vide.
+
+**La lecture par blocs.** J'ai perdu plusieurs essais à vouloir faire tomber les blocs sur
+un séparateur. C'était inutile : le mot en cours de construction est une variable locale du
+générateur, et le générateur est **une seule invocation** qui voit tous les blocs. Un mot
+commencé à la fin d'un bloc se termine au début du suivant. Ça ne marche que si un seul
+`decouper` voit toute la lecture — mes premières versions le relançaient bloc par bloc,
+d'où les mots coupés, d'où ma tentative d'aligner les blocs, qui traitait le symptôme.
+
+**Les entiers ne sont pas le but, ils sont le moyen.** Remplacer des chaînes par des entiers
+dans la même liste Python ne gagne rien : une liste stocke 8 octets de pointeur par élément
+quoi qu'elle pointe, et grâce à la table il n'existe que ~2 080 objets distincts dans les
+deux cas. Le facteur 4 vient de **sortir du conteneur Python** — un `uint16` dans un tableau
+NumPy occupe 2 octets. Les entiers sont ce qui rend le binaire possible, et le binaire ce
+qui rend l'ajout à la suite possible.
+
+La conversion token → indice est **absorbée par la table** : elle voyage avec la
+tokenisation, dans la même branche, 67 000 fois au lieu de 560 millions. Ce qui l'autorise
+est que le vocabulaire est **gelé** — un indice calculé une fois reste valable. C'est la
+contrepartie de la décision du 11/08 : faire planter l'encodeur sur un caractère inconnu
+plutôt que de l'ajouter à la volée. Les deux décisions se répondent à un mois d'écart.
+
+**Ce que l'aller-retour ne teste pas.** J'ai répondu « il faut aussi comparer les
+efficacités » — hors sujet. L'aller-retour teste la **réversibilité** : recoller les tokens
+redonne le texte. C'est faible : `[' the']` et `[' t', 'h', 'e']` la satisfont toutes deux.
+`comparer_encodeurs` teste l'**identité** : la même suite, élément par élément.
+
+L'écart entre les deux est exactement ce qui me menaçait. Une tokenisation différente mais
+recollable serait passée sans bruit, et mes checkpoints — entraînés sur des indices précis —
+seraient devenus illisibles. Le modèle aurait continué à tourner en produisant du charabia.
+**Le danger n'est pas ce qui plante, c'est ce qui passe.**
+
+**Pourquoi les vérificateurs d'abord.** Si j'avais réécrit `encode()` puis cherché à
+vérifier, je n'aurais eu que la nouvelle version à comparer à elle-même, ce qui ne prouve
+rien. Le code, git l'aurait sauvé ; mais `data/` n'est pas versionné, et les `.npy` d'août
+étaient irremplaçables. Une référence se capture **avant** le changement, et elle doit
+couvrir ce que git ne couvre pas.
+
+**Les trois familles de bugs.** Elles sont revenues plusieurs fois chacune :
+
+- **l'objet n'est pas du type que le code suppose** — `.replace` sur une liste ; un parcours
+  écrit pour une chaîne appliqué à une liste ; itérer un fichier, qui donne des lignes ;
+- **l'indice et la valeur se désynchronisent** — `for car in mot2` donne la valeur, pas la
+  position ; le compteur tenu à côté dérive, le test regarde une position mobile et
+  l'écriture frappe toujours la position 0 ;
+- **on modifie ce qu'on parcourt** — `del` pendant un `for`, puis l'inverse, `append` sur la
+  liste parcourue, qui fait resservir par la boucle ce qu'on vient d'y déposer.
+
+Ce qu'elles partagent, et que je n'avais pas vu : **Python ne refuse pas.** Liste, chaîne et
+fichier sont tous parcourables et indexables ; une liste modifiée pendant un `for` continue
+d'être parcourue. Le code tourne et produit du plausible et faux — 1 248 « mots » au lieu de
+200 000, et l'aller-retour qui passe quand même. Ce sont des erreurs de **sens**, pas de
+**syntaxe**, donc l'interpréteur se tait. Ce ne sont pas les messages d'erreur qui les ont
+trouvées, ce sont les vérificateurs. Il ne me faut pas plus d'attention, il me faut un
+contrôle qui compare à une référence.
+
+**`rencode.py` n'a jamais été corrigé.** Ses 28 Go n'ont pas été résolus, ils ont cessé
+d'être demandés : le fichier n'existait que parce que l'encodeur produisait des chaînes.
+J'avais coupé le travail en « encoder en chaînes » puis « convertir en entiers », ce qui
+obligeait 910 Mo de JSON à transiter entre les deux. Cet intermédiaire n'existait que pour
+raccorder deux étapes qui n'avaient pas besoin de l'être. **Une étape qui n'existe que pour
+réparer la sortie de la précédente signale une frontière mal placée.**
+
+**Ce que ça débloque, et pourquoi le corpus décidait de la taille du modèle.** Je n'avais
+pas su tenir ce raisonnement en entier.
+
+Chinchilla : un modèle de N paramètres demande ~20 N tokens. Mon dernier run est à 29,8
+tokens par paramètre — donc le modèle est *trop petit* pour le calcul que je lui ai
+consacré. Le réflexe serait de l'agrandir, mais mon split d'entraînement ne fait que
+113,6 M tokens et j'étais déjà à 3,25 époques : agrandir sans plus de texte revient à
+relire davantage, donc à mémoriser au lieu d'apprendre.
+
+Et ce n'est pas le matériel qui bloquait — la VRAM était à 30 %. C'est la **donnée**.
+Les 2,2 Go donnent ~560 M tokens, donc ~28 M paramètres à une seule époque, plus du double
+du modèle actuel. Avant aujourd'hui, produire ces tokens demandait ~8 h et 28 à 49 Go de
+RAM : c'était impossible sur cette machine. Maintenant, 25 min et 1,3 Go.
+
+**Le corpus ne limitait pas la qualité du modèle, il limitait sa taille possible** — et la
+taille possible décide de ce que le modèle peut apprendre.
+
+**Ce que je n'ai pas su répondre seul**, et sur quoi revenir : la distinction entre
+rentabilité et validité d'une mémoïsation ; le coût C contre Python sur un mot inédit ; le
+piège du générateur parcouru deux fois ; ce que teste réellement l'aller-retour ; la cause
+commune des trois familles de bugs ; le raisonnement de Chinchilla en entier.
+
+ — à écrire par Ethan, sans relire le code.
+
+---
+
 ## Log des `PSEUDOCODE`
 
 Tenu par Claude. Une ligne par usage.
