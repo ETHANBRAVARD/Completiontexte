@@ -13,7 +13,7 @@ python3 -u scripts/encode_gros_corpus.py --mo 500 --taille-morceau 85
 echo
 echo "############ 2/3  conversion token -> entier ############"
 date '+%H:%M:%S'
-/usr/bin/time -v python3 -u src/model/rencode.py 2>&1 | grep -E 'Maximum resident|Command exited' || true
+/usr/bin/time -v python3 -u src/model/OBSOLETE_rencode.py 2>&1 | grep -E 'Maximum resident|Command exited' || true
 python3 - <<'EOF'
 import numpy as np, json, os
 v = json.load(open('data/tokenizer/bpe_liste.json'))

@@ -4,7 +4,7 @@ cd /home/ethanbravard/projet_perso/Completiontexte
 echo "### 1/3 réencodage de train seul ###"; date '+%H:%M:%S'
 python3 -u scripts/encode_gros_corpus.py --splits train --sauter-preparation --sans-archivage
 echo; echo "### 2/3 conversion token -> entier ###"; date '+%H:%M:%S'
-python3 -u src/model/rencode.py
+python3 -u src/model/OBSOLETE_rencode.py
 python3 - <<'PY'
 import numpy as np, json, os
 v=json.load(open('data/tokenizer/bpe_liste.json')); tot=0

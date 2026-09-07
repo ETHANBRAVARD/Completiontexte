@@ -32,6 +32,8 @@ import subprocess
 import sys
 import tempfile
 import time
+
+import numpy as np
 from pathlib import Path
 
 RACINE = Path(__file__).resolve().parents[2]
@@ -52,6 +54,10 @@ def poser_version(source_code, bac):
     bac.mkdir(parents=True, exist_ok=True)
     (bac / "encodeur.py").write_text(source_code, encoding="utf-8")
     (bac / "data").mkdir(exist_ok=True)
+    # L'encodeur lit data/tokenizer/ par un chemin relatif : on le lui rend visible
+    lien = bac / "data" / "tokenizer"
+    if not lien.exists():
+        lien.symlink_to(RACINE / "data" / "tokenizer")
     return bac
 
 
@@ -67,9 +73,10 @@ def executer(bac, corpus, bpe, libelle):
         print("  " + "\n  ".join((r.stderr or r.stdout).strip().splitlines()[-12:]))
         raise SystemExit(1)
 
-    produits = sorted((bac / "data").glob("*.json"))
+    produits = sorted(f for f in (bac / "data").iterdir()
+                      if f.suffix in (".json", ".npy"))
     if not produits:
-        print(f"\n  {libelle} n'a écrit aucun JSON dans son dossier data/.")
+        print(f"\n  {libelle} n'a rien écrit dans son dossier data/.")
         if r.stdout.strip():
             print("  sortie du programme :")
             print("  " + "\n  ".join(r.stdout.strip().splitlines()[-12:]))
@@ -80,8 +87,11 @@ def executer(bac, corpus, bpe, libelle):
         print(f"  {libelle} : plusieurs fichiers écrits, "
               f"je prends {produits[0].name}")
 
-    contenu = json.loads(produits[0].read_text(encoding="utf-8"))
-    tokens = contenu["encode"] if isinstance(contenu, dict) else contenu
+    if produits[0].suffix == ".npy":
+        tokens = np.load(produits[0]).tolist()
+    else:
+        contenu = json.loads(produits[0].read_text(encoding="utf-8"))
+        tokens = contenu["encode"] if isinstance(contenu, dict) else contenu
     if tokens and isinstance(tokens[0], int):
         # sortie en indices : on repasse par le vocabulaire pour comparer des tokens
         vocab = json.loads((RACINE / "data" / "tokenizer" / "bpe_liste.json")
