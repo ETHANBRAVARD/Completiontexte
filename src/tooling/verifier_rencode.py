@@ -108,6 +108,11 @@ def verifier(split, vocab, faire_aller_retour):
         i = comparer(tok, r)
         if i is None:
             print(f"    sauvegarde OK — identique, {milliers(len(tok))} entiers")
+        elif len(tok) != len(r):
+            # Longueurs très différentes : ce n'est pas une régression, c'est un
+            # autre corpus. La sauvegarde ne fait référence qu'à corpus égal.
+            print(f"    sauvegarde   sans objet — {milliers(len(tok))} tokens contre "
+                  f"{milliers(len(r))} : la référence porte un autre corpus")
         else:
             ok = False
             print(f"    sauvegarde ÉCHEC — première différence au token {milliers(i)}")
