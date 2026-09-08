@@ -1,11 +1,21 @@
-"""Nettoyage et découpage du corpus TinyStories, en lecture incrémentale.
+"""Nettoyage et découpage du corpus TinyStories, entièrement en flux.
 
 Zone verte (tooling) : préparation de données, aucune logique de modèle.
 
-Remplace `src/tooling/prepare_tinystories.py`, qui chargeait le fichier entier en
-mémoire (6 à 7 Go de pointe sur le fichier d'entraînement de 2,2 Go). Ici le fichier
-est lu par blocs et découpé au fil de l'eau sur le séparateur d'histoires ; la mémoire
-reste bornée par la taille du corpus retenu, pas par celle du fichier source.
+Le fichier brut est lu par blocs et découpé au fil de l'eau sur le séparateur
+d'histoires. Chaque histoire nettoyée part immédiatement dans un fichier de
+travail ; seule sa **position** (offset, longueur) est conservée en mémoire, soit
+16 octets par histoire au lieu de son texte.
+
+Conséquence : la mémoire ne dépend plus de la taille du corpus retenu. Sur les
+2,2 Go du fichier d'entraînement, la pointe reste sous 300 Mo là où la version
+précédente montait vers 6 Go — elle accumulait toutes les histoires en mémoire,
+puis en fabriquait une seconde copie par `"\\n\\n".join(...)` avant d'écrire.
+
+Le mélange porte sur les positions, pas sur le texte. `random.shuffle` ne dépend
+que de la graine et du nombre d'éléments : la permutation est donc **identique** à
+celle de l'ancienne version, et les fichiers produits sont octet pour octet les
+mêmes à graine et `--max-mo` égaux.
 
 Le découpage se fait par histoire, jamais au milieu d'une : une histoire coupée en
 deux polluerait la validation avec du texte vu à l'entraînement.
@@ -23,6 +33,7 @@ import argparse
 import random
 import sys
 import unicodedata
+from array import array
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -65,26 +76,66 @@ def alphabet_gele():
     return set(json.loads(bpe.read_text(encoding="utf-8"))["alphabet"])
 
 
-def lire_histoires(chemin: Path, limite_octets: int, log):
-    """Rend les histoires nettoyées, en lisant le fichier par blocs.
+class Alphabet:
+    """Ensemble des octets vus, tenu à jour sans reparcourir le texte en Python.
 
-    S'arrête dès que le volume nettoyé atteint `limite_octets` (0 = tout lire).
+    `bytes.translate` supprime en C tous les octets déjà connus ; ce qui reste est
+    forcément nouveau. Passé les premières histoires il ne reste jamais rien, et le
+    coût tombe à un balayage C par histoire.
+    """
+
+    def __init__(self):
+        self.vus = set()
+        self._connus = b""
+
+    def ajoute(self, donnees: bytes):
+        reste = donnees.translate(None, self._connus)
+        if reste:
+            self.vus |= set(reste)
+            self._connus = bytes(sorted(self.vus))
+
+    def caracteres(self):
+        return {chr(o) for o in self.vus}
+
+
+def nettoyer_vers_fichier(chemin: Path, limite_octets: int, travail: Path, log):
+    """Nettoie le corpus vers `travail` et rend les positions des histoires.
+
+    Rend (offsets, longueurs) : deux tableaux d'entiers, 8 octets par histoire.
     Le premier morceau est écarté s'il commence par une minuscule : le fichier brut
     de HuggingFace peut débuter au milieu d'une histoire (repéré par Ethan, 31/07/2026).
     """
-    histoires = []
-    volume = 0
+    offsets, longueurs = array("q"), array("q")
+    volume = position = lus = ecartees = 0
     reste = ""
     premier = True
-    lus = 0
-    ecartees = 0
     connus = alphabet_gele()
     if connus:
         log(f"  alphabet gelé : {len(connus)} caractères — les histoires qui en "
             f"contiennent d'autres seront écartées")
 
-    with chemin.open(encoding="utf-8", errors="replace") as f:
-        while True:
+    def garder(propre: str, sortie) -> bool:
+        """Écrit une histoire retenue et note sa position. Rend False si écartée."""
+        nonlocal position, volume
+        if not propre:
+            return False
+        # Quelques dizaines d'histoires du corpus contiennent des caractères
+        # chinois ou des emojis égarés. On écarte l'histoire entière plutôt
+        # que d'en retirer les caractères, ce qui laisserait des mots mutilés.
+        if not propre.isascii() or (connus and not set(propre) <= connus):
+            return None  # écartée, à distinguer du morceau vide
+        donnees = propre.encode("ascii")
+        sortie.write(donnees)
+        offsets.append(position)
+        longueurs.append(len(donnees))
+        position += len(donnees)
+        volume += len(donnees) + 2  # le "\n\n" de jointure
+        return True
+
+    with travail.open("wb") as sortie, \
+            chemin.open(encoding="utf-8", errors="replace") as f:
+        atteint = False
+        while not atteint:
             bloc = f.read(BLOC)
             if not bloc:
                 break
@@ -99,30 +150,46 @@ def lire_histoires(chemin: Path, limite_octets: int, log):
                         log(f"  fragment initial tronqué écarté "
                             f"({len(morceau.strip())} caractères)")
                         continue
-                propre = normalise(morceau).strip()
-                if not propre:
-                    continue
-                # Quelques dizaines d'histoires du corpus contiennent des caractères
-                # chinois ou des emojis égarés. On écarte l'histoire entière plutôt
-                # que d'en retirer les caractères, ce qui laisserait des mots mutilés.
-                if not propre.isascii() or (connus and not set(propre) <= connus):
+                etat = garder(normalise(morceau).strip(), sortie)
+                if etat is None:
                     ecartees += 1
-                    continue
-                histoires.append(propre)
-                volume += len(propre) + 2  # le "\n\n" de jointure
-                if limite_octets and volume >= limite_octets:
+                elif etat and limite_octets and volume >= limite_octets:
                     log(f"  limite atteinte après {lus/1e6:.0f} Mo lus sur "
                         f"{chemin.stat().st_size/1e6:.0f}")
-                    if ecartees:
-                        log(f"  {ecartees} histoires écartées (caractères hors ASCII)")
-                    return histoires
+                    atteint = True
+                    break
 
-    propre = normalise(reste).strip()
-    if propre and propre.isascii() and not (connus and not set(propre) <= connus):
-        histoires.append(propre)
+        if not atteint:
+            if garder(normalise(reste).strip(), sortie) is None:
+                ecartees += 1
+
     if ecartees:
         log(f"  {ecartees} histoires écartées (caractères hors ASCII)")
-    return histoires
+    return offsets, longueurs
+
+
+def ecrire_split(travail, indices, offsets, longueurs, chemin: Path):
+    """Recopie les histoires d'un split depuis le fichier de travail.
+
+    Rend (nombre d'octets écrits, alphabet du split). Une histoire à la fois : la
+    mémoire ne dépend pas de la taille du split.
+    """
+    alpha = Alphabet()
+    ecrits = 0
+    with chemin.open("wb") as sortie:
+        for rang, i in enumerate(indices):
+            if rang:
+                sortie.write(b"\n\n")
+                ecrits += 2
+            travail.seek(offsets[i])
+            donnees = travail.read(longueurs[i])
+            sortie.write(donnees)
+            alpha.ajoute(donnees)
+            ecrits += len(donnees)
+        sortie.write(b"\n")
+        ecrits += 1
+    alpha.ajoute(b"\n")
+    return ecrits, alpha.caracteres()
 
 
 def main() -> int:
@@ -136,6 +203,8 @@ def main() -> int:
     p.add_argument("--seed", type=int, default=1337)
     p.add_argument("--prefixe", default="stories",
                    help="préfixe des fichiers de sortie dans data/")
+    p.add_argument("--garder-travail", action="store_true",
+                   help="ne pas supprimer le fichier de travail (débogage)")
     args = p.parse_args()
 
     brut = args.raw if args.raw.is_absolute() else ROOT / args.raw
@@ -150,30 +219,40 @@ def main() -> int:
     log(f"cible  : {args.max_mo:.0f} Mo de texte nettoyé"
         if args.max_mo else "cible  : tout le fichier")
 
-    histoires = lire_histoires(brut, int(args.max_mo * 1e6), log)
-    log(f"  {len(histoires)} histoires retenues")
+    travail_chemin = DATA / f"{args.prefixe}.travail.tmp"
+    offsets, longueurs = nettoyer_vers_fichier(
+        brut, int(args.max_mo * 1e6), travail_chemin, log)
+    n = len(offsets)
+    log(f"  {n} histoires retenues  "
+        f"({travail_chemin.stat().st_size/1e6:.0f} Mo de texte nettoyé)")
 
-    random.Random(args.seed).shuffle(histoires)
+    # Mélange des positions, pas du texte. La permutation ne dépend que de la
+    # graine et du nombre d'éléments : elle est identique à celle qu'on obtiendrait
+    # en mélangeant les histoires elles-mêmes.
+    ordre = list(range(n))
+    random.Random(args.seed).shuffle(ordre)
 
-    n = len(histoires)
     n_val = int(n * args.val_frac)
     n_test = int(n * args.test_frac)
     parts = {
-        "val": histoires[:n_val],
-        "test": histoires[n_val:n_val + n_test],
-        "train": histoires[n_val + n_test:],
+        "val": ordre[:n_val],
+        "test": ordre[n_val:n_val + n_test],
+        "train": ordre[n_val + n_test:],
     }
 
     log()
     alphabets = {}
-    for nom, lot in parts.items():
-        contenu = "\n\n".join(lot) + "\n"
-        chemin = DATA / f"{args.prefixe}.{nom}.txt"
-        chemin.write_text(contenu, encoding="utf-8")
-        alphabets[nom] = set(contenu)
-        log(f"  {str(chemin.relative_to(ROOT)):32} {len(lot):7} histoires "
-            f"{len(contenu)/1e6:8.2f} Mo")
-        del contenu
+    try:
+        with travail_chemin.open("rb") as travail:
+            for nom, indices in parts.items():
+                chemin = DATA / f"{args.prefixe}.{nom}.txt"
+                taille, alphabets[nom] = ecrire_split(
+                    travail, indices, offsets, longueurs, chemin)
+                log(f"  {str(chemin.relative_to(ROOT)):32} {len(indices):7} histoires "
+                    f"{taille/1e6:8.2f} Mo")
+    finally:
+        if not args.garder_travail:
+            travail_chemin.unlink(missing_ok=True)
 
     alphabet = set().union(*alphabets.values())
     log(f"\nseed={args.seed}  {n} histoires  {len(alphabet)} caractères distincts")
