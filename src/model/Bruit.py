@@ -1,0 +1,71 @@
+import torch
+import torch.nn.functional as F
+from tireur_de_lot import tireur_de_lot
+
+
+def layernorm(x, g, b):
+    mean=x.mean(dim=-1, keepdim=True)
+    var=x.var(dim=-1, keepdim=True, unbiased=False)
+    return (x-mean)/torch.sqrt(var+1e-5)*g+b
+
+
+
+def loss_validation(model,lot,tok_val,appareil):
+    max_len=model['max_len']
+    num_blocs=model['num_blocs']
+    num_heads=model['num_heads']
+    head_dim=model['head_dim']
+    dim=model['dim']
+    alph=model['alph']
+    c=model['c']
+    pos_emb=model['pos_emb']
+    ln1_g=model['ln1_g']
+    ln1_b=model['ln1_b']
+    ln2_g=model['ln2_g']
+    ln2_b=model['ln2_b']
+    lnn_g=model['lnn_g']
+    lnn_b=model['lnn_b']
+    W_q=model['W_q']
+    W_k=model['W_k']
+    W_v=model['W_v']
+    W_o=model['W_o']
+    W_1=model['W_1']
+    b_1=model['b_1']
+    W_2=model['W_2']
+    b_2=model['b_2']
+    W_out=model['W_out']
+    b_out=model['b_out']
+    mask=torch.triu(torch.full((max_len,max_len), float('-inf'),device=appareil), diagonal=1)
+    with torch.no_grad():
+                losstot_val=0
+                print("### Loss sur le jeu de validation ###")
+                for k in range (10):
+                    tireur=tireur_de_lot(tok_val, lot, max_len)
+                    input_indices, target_indices=tireur
+                    x=c[input_indices]
+                    x=x+pos_emb[:max_len]
+                    for bloc in range(num_blocs):
+                        y=layernorm(x, ln1_g[bloc], ln1_b[bloc])
+                        Q=y@W_q[bloc].T
+                        K=y@W_k[bloc].T
+                        V=y@W_v[bloc].T
+                        Q=Q.view(lot, max_len, num_heads, head_dim).transpose(1,2)
+                        K=K.view(lot, max_len, num_heads, head_dim).transpose(1,2)
+                        V=V.view(lot, max_len, num_heads, head_dim).transpose(1,2)
+                        attn=Q@K.transpose(-2,-1)/head_dim**0.5
+                        attn=attn+mask
+                        attn=torch.softmax(attn, dim=-1)
+                        out=attn@V
+                        out=out.transpose(1,2).reshape(lot, max_len, dim)
+                        out=out@W_o[bloc].T
+                        x=x+out
+                        z=layernorm(x, ln2_g[bloc], ln2_b[bloc])
+                        mlp=F.relu(z@W_1[bloc].T+b_1[bloc])
+                        mlp=mlp@W_2[bloc].T+b_2[bloc]
+                        x=x+mlp
+                    x=layernorm(x, lnn_g, lnn_b)
+                    logits=x@W_out.T+b_out
+                    targets=target_indices.to(torch.int64)
+                    loss=F.cross_entropy(logits.view(lot*max_len,alph), targets.view(lot*max_len,))
+                    losstot_val+=loss.item()
+    return(losstot_val/10)

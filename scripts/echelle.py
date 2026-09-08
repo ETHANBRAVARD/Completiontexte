@@ -156,7 +156,10 @@ def lancer(nom, dim, blocs, heads, pas_max, racine, val_tous, echantillons, log)
 
     # On ne garde que le dernier checkpoint : les intermédiaires pèsent lourd et
     # ne servent à rien une fois la courbe tracée.
-    points = sorted(dossier.glob("*-sauvegarde_*.pt"))
+    # Tri numérique : "sauvegarde_935" passe après "sauvegarde_1496" en ordre
+    # lexicographique, ce qui ferait supprimer le checkpoint final.
+    points = sorted(dossier.glob("*-sauvegarde_*.pt"),
+                    key=lambda f: int(f.stem.rsplit("_", 1)[1]))
     for vieux in points[:-1]:
         vieux.unlink()
 
