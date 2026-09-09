@@ -1932,6 +1932,56 @@ commune des trois familles de bugs ; le raisonnement de Chinchilla en entier.
 
 ---
 
+#### 08-09/09/2026 — corpus complet, puis le banc d'échelle
+
+> Log factuel tenu par Claude. Rubrique de compréhension laissée à Ethan.
+
+**Le corpus complet.** `prepare_stories.py` réécrit en flux (positions en mémoire, texte
+sur disque, mélange des positions à permutation identique — sorties octet pour octet
+égales à l'ancienne version, vérifié à 20 et 300 Mo). Mémoire plafonnée à ~456 Mo quelle
+que soit la taille, contre ~6,9 Go auparavant.
+
+2 717 221 histoires retenues, 274 écartées pour caractères hors ASCII, 2,18 Go nettoyés.
+Encodage en 35 min : **552 375 763 tokens** (train 497 M, val 27,6 M, test 27,7 M), aller
+-retour exact sur les trois splits. 4,4× le corpus précédent.
+
+**Le banc d'échelle**, 9 h de GPU, six configurations, 90 min de chronomètre chacune,
+protocole iso-calcul. Résultats détaillés dans le README. En deux lignes : courbe en U
+avec un optimum vers 12 M de paramètres, et **divergence des deux configurations en
+`dim=640`**, à pas d'apprentissage constant de 0,001.
+
+**Trois erreurs de méthode, toutes de mon fait, toutes corrigées après mesure :**
+
+- la sonde qui estimait le temps par pas retranchait un démarrage supposé de 12 s à 40 pas
+  de mesure. Quand le démarrage réel varie, c'est cette constante inventée qui domine :
+  361 puis 497 ms pour la même configuration à cinq minutes d'écart. Remplacée par un
+  arrêt au chronomètre — on ne suppose plus, on coupe ;
+- la sortie des runs était capturée en mémoire et écrite en fin de run, ce qui rendait
+  aveugle pendant 90 minutes. Passée en écriture directe ;
+- le tri des checkpoints était lexicographique : `sauvegarde_935` passe après
+  `sauvegarde_1496`. J'ai donc supprimé les checkpoints finaux des deux premiers runs en
+  croyant garder le dernier. Même famille que les bugs de la veille — comparer des
+  chaînes là où il fallait comparer des nombres, sans que rien ne proteste.
+
+**Une fonction de validation extraite** (`Bruit.py`) : la boucle de validation de
+`transformer.py` rendue appelable, recevant les poids, le lot, les données et l'appareil.
+Vérifiée contre le banc — 2,7558 mesuré contre 2,7587 journalisé au même pas. C'est la
+brique nécessaire au balayage du bruit et de la quantification de l'étape 8.
+
+**Rubrique de compréhension** — à écrire par Ethan, sans relire le code. Questions ouvertes
+pour la remplir :
+
+- pourquoi une instabilité apparaît-elle quand la largeur augmente, à pas d'apprentissage
+  constant ? Qu'est-ce qui grandit avec `dim` dans la mise à jour d'un poids ?
+- pourquoi un protocole iso-calcul répond-il à une question différente d'un protocole
+  iso-pas, et laquelle des deux voulais-tu ?
+- la courbe en U a-t-elle un creux réel à 12 M, ou ce creux est-il un artefact de
+  l'instabilité ? Quelle mesure trancherait ?
+- pourquoi `A1-petit`, avec 45 750 pas contre 17 750, fait-il moins bien que `A2` alors
+  qu'il a vu 2,6 fois plus de tokens ?
+
+---
+
 ## Log des `PSEUDOCODE`
 
 Tenu par Claude. Une ligne par usage.

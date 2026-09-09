@@ -265,6 +265,60 @@ isolé contre la référence (5 397/5 397 mots distincts), et comparaison de l'e
 à sa version committée. Les 126 150 131 tokens des trois splits sortent **identiques,
 entier pour entier**, à ceux produits en août.
 
+### Banc d'échelle : une courbe en U, et une instabilité
+
+Neuf heures de GPU, six configurations, **90 minutes de chronomètre chacune**. Le
+protocole est iso-calcul et non iso-pas : à budget de temps égal, le petit modèle fait
+beaucoup de pas, le gros en fait peu mais chacun vaut davantage. C'est la question de
+Chinchilla posée sur une machine réelle — à calcul fixé, quelle taille minimise la perte ?
+
+Le nombre de pas n'est ni choisi ni estimé : chaque run est arrêté au chronomètre et le
+compte réel se lit dans son journal. Deux versions antérieures dérivaient les pas d'une
+sonde de 40 pas ; elle mesurait surtout le temps de démarrage et donnait 361 puis 497 ms
+pour la même configuration à cinq minutes d'intervalle. Des budgets inégaux à 38 % près
+auraient vidé l'iso-calcul de son sens.
+
+| config | dim | blocs | paramètres | pas faits | ms/pas | perte val |
+|---|---|---|---|---|---|---|
+| A1-petit | 256 | 4 | 4,32 M | 45 750 | 118 | 1,6194 |
+| **A2-actuel** | **384** | **6** | **12,39 M** | **17 750** | **304** | **1,5228** |
+| A3-moyen | 512 | 7 | 24,38 M | 10 000 | 540 | 1,6454 |
+| B2-profond | 448 | 11 | 28,58 M | 7 500 | 720 | 1,7630 |
+| B1-large | 640 | 5 | 27,52 M | 9 250 | 584 | *diverge* |
+| A4-grand | 640 | 8 | 42,28 M | — | — | *diverge* |
+
+**La courbe en U existe** : 1,6194 → **1,5228** → 1,6454. À 90 minutes de calcul sur cette
+machine, l'optimum est autour de 12 M de paramètres. Le petit modèle sature faute de
+capacité ; le gros n'a pas le temps de voir assez de tokens.
+
+**Mais deux configurations n'ont pas appris**, et les deux ont `dim=640` :
+
+```
+B1-large      pas 1000  4,0203  ->  pas 3000  4,4309  ->  pas 9000  4,4512
+A4-grand      pas 1000  4,3652  ->  pas 5000  4,9105   (monotone croissante)
+A2-actuel     pas 1000  2,6926  ->  pas 6000  1,7525   (pour comparer)
+```
+
+B1 descend puis remonte ; A4 ne descend jamais. Toutes les largeurs de 256 à 512
+apprennent proprement. Ce n'est donc pas une limite de capacité mais une **instabilité
+d'entraînement** : le pas d'apprentissage est fixé à 0,001 pour toutes les tailles, et il
+ne survit pas au passage à `dim=640`.
+
+**Ce que le banc ne peut pas trancher.** Si 0,001 est déjà marginal à `dim=512`, alors la
+branche droite du U mesure en partie cette instabilité et non le budget de tokens. Les deux
+effets sont confondus, et l'optimum apparent à 12 M pourrait être un artefact. De même, la
+comparaison profondeur contre largeur — la question que le run d'août n'avait pas séparée —
+reste sans réponse, puisque B1 a divergé.
+
+Le banc du pas d'apprentissage (`--lr`) est écrit pour lever ces deux doutes : trois pas
+décroissants à `dim=640`, plus un contrôle à `dim=512`. Deux heures.
+
+Un mot sur l'outil : `scripts/echelle.py` ne modifie jamais `transformer.py`. Il en dépose
+une copie paramétrée dans le dossier de chaque run et exécute celle-là — chaque run porte
+donc sa propre source et reste rejouable. Chaque substitution doit correspondre exactement
+une fois, sinon le banc s'arrête : sans ce garde-fou, un simple renommage ferait tourner
+les six configurations sur les valeurs par défaut en affichant des résultats crédibles.
+
 ## Structure
 
 ```
