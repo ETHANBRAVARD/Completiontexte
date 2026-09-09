@@ -284,8 +284,8 @@ auraient vidé l'iso-calcul de son sens.
 | **A2-actuel** | **384** | **6** | **12,39 M** | **17 750** | **304** | **1,5228** |
 | A3-moyen | 512 | 7 | 24,38 M | 10 000 | 540 | 1,6454 |
 | B2-profond | 448 | 11 | 28,58 M | 7 500 | 720 | 1,7630 |
-| B1-large | 640 | 5 | 27,52 M | 9 250 | 584 | *diverge* |
-| A4-grand | 640 | 8 | 42,28 M | — | — | *diverge* |
+| B1-large | 640 | 5 | 27,52 M | 9 250 | 584 | *4,4512 — diverge* |
+| A4-grand | 640 | 8 | 42,28 M | 5 750 | 939 | *4,9105 — diverge* |
 
 **La courbe en U existe** : 1,6194 → **1,5228** → 1,6454. À 90 minutes de calcul sur cette
 machine, l'optimum est autour de 12 M de paramètres. Le petit modèle sature faute de
@@ -295,7 +295,7 @@ capacité ; le gros n'a pas le temps de voir assez de tokens.
 
 ```
 B1-large      pas 1000  4,0203  ->  pas 3000  4,4309  ->  pas 9000  4,4512
-A4-grand      pas 1000  4,3652  ->  pas 5000  4,9105   (monotone croissante)
+A4-grand      pas 1000  4,3652  ->  pas 5750  4,9105   (monotone croissante)
 A2-actuel     pas 1000  2,6926  ->  pas 6000  1,7525   (pour comparer)
 ```
 
