@@ -95,14 +95,32 @@ def bruit_mult(model,alpha):
     return(model2)
 
 def bruit_add(model,alpha):
-    model['W_q']=model['W_q']+alpha
-    model['W_k']=model['W_k']+alpha
-    model['W_v']=model['W_v']+alpha
-    model['W_o']=model['W_o']+alpha
-    model['W_1']=model['W_1']+alpha
-    model['b_1']=model['b_1']+alpha
-    model['W_2']=model['W_2']+alpha
-    model['b_2']=model['b_2']+alpha
-    model['W_out']=model['W_out']+alpha
-    model['b_out']=model['b_out']+alpha
-    return(model)
+    maximum=0
+    model2=model.copy()
+    model2['W_q']=[]
+    model2['W_k']=[]
+    model2['W_o']=[]
+    model2['W_1']=[]
+    model2['W_2']=[]
+    model2['W_v']=[]
+    for i in range(len(model['W_q'])):
+        maximum=model['W_q'][i].abs().max()
+        model2['W_q'].append(torch.randn_like(model['W_q'][i])*alpha*maximum+model['W_q'][i])
+    for i in range(len(model['W_k'])):
+        maximum=model['W_k'][i].abs().max()
+        model2['W_k'].append(torch.randn_like(model['W_k'][i])*alpha*maximum+model['W_k'][i])
+    for i in range(len(model['W_v'])):
+        maximum=model['W_v'][i].abs().max()
+        model2['W_v'].append(torch.randn_like(model['W_v'][i])*alpha*maximum+model['W_v'][i])
+    for i in range(len(model['W_o'])):
+        maximum=model['W_o'][i].abs().max()
+        model2['W_o'].append(torch.randn_like(model['W_o'][i])*alpha*maximum+model['W_o'][i])
+    for i in range(len(model['W_1'])):
+        maximum=model['W_1'][i].abs().max()
+        model2['W_1'].append(torch.randn_like(model['W_1'][i])*alpha*maximum+model['W_1'][i])
+    for i in range(len(model['W_2'])):
+        maximum=model['W_2'][i].abs().max()
+        model2['W_2'].append(torch.randn_like(model['W_2'][i])*alpha*maximum+model['W_2'][i])
+    maximum=model['W_out'].abs().max()
+    model2['W_out']=model2['W_out']+torch.randn_like(model['W_out'])*alpha*maximum
+    return(model2)
