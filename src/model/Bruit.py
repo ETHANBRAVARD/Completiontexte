@@ -1,3 +1,4 @@
+import random
 import torch
 import torch.nn.functional as F
 from tireur_de_lot import tireur_de_lot
@@ -69,3 +70,39 @@ def loss_validation(model,lot,tok_val,appareil):
                     loss=F.cross_entropy(logits.view(lot*max_len,alph), targets.view(lot*max_len,))
                     losstot_val+=loss.item()
     return(losstot_val/10)
+
+def bruit_mult(model,alpha):
+    model2=model.copy()
+    model2['W_q']=[]
+    model2['W_k']=[]
+    model2['W_o']=[]
+    model2['W_1']=[]
+    model2['W_2']=[]
+    model2['W_v']=[]
+    for i in range(len(model['W_q'])):
+        model2['W_q'].append(model['W_q'][i]*torch.randn_like(model['W_q'][i])*alpha+model['W_q'][i])
+    for i in range(len(model['W_k'])):
+        model2['W_k'].append(model['W_k'][i]*torch.randn_like(model['W_k'][i])*alpha+model['W_k'][i])
+    for i in range(len(model['W_v'])):
+        model2['W_v'].append(model['W_v'][i]*torch.randn_like(model['W_v'][i])*alpha+model['W_v'][i])
+    for i in range(len(model['W_o'])):
+        model2['W_o'].append(model['W_o'][i]*torch.randn_like(model['W_o'][i])*alpha+model['W_o'][i])
+    for i in range(len(model['W_1'])):
+        model2['W_1'].append(model['W_1'][i]*torch.randn_like(model['W_1'][i])*alpha+model['W_1'][i])
+    for i in range(len(model['W_2'])):
+        model2['W_2'].append(model['W_2'][i]*torch.randn_like(model['W_2'][i])*alpha+model['W_2'][i])
+    model2['W_out']=model2['W_out']*torch.randn_like(model['W_out'])*alpha+model2['W_out']
+    return(model2)
+
+def bruit_add(model,alpha):
+    model['W_q']=model['W_q']+alpha
+    model['W_k']=model['W_k']+alpha
+    model['W_v']=model['W_v']+alpha
+    model['W_o']=model['W_o']+alpha
+    model['W_1']=model['W_1']+alpha
+    model['b_1']=model['b_1']+alpha
+    model['W_2']=model['W_2']+alpha
+    model['b_2']=model['b_2']+alpha
+    model['W_out']=model['W_out']+alpha
+    model['b_out']=model['b_out']+alpha
+    return(model)
