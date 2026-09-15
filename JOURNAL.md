@@ -1968,17 +1968,57 @@ avec un optimum vers 12 M de paramètres, et **divergence des deux configuration
 Vérifiée contre le banc — 2,7558 mesuré contre 2,7587 journalisé au même pas. C'est la
 brique nécessaire au balayage du bruit et de la quantification de l'étape 8.
 
-**Rubrique de compréhension** — à écrire par Ethan, sans relire le code. Questions ouvertes
-pour la remplir :
+**Rubrique de compréhension** 
+**Ce que j'ai compris** 
+**Les deux protocoles.** Les pas n'ont pas la même importance pour chaque taille de
+modèle ; le temps est donc un facteur plus intéressant à mesurer, car c'est lui le
+limitant. Le premier protocole compare à pas égaux, le second à données vues égales.
+Je souhaitais le second.
 
-- pourquoi une instabilité apparaît-elle quand la largeur augmente, à pas d'apprentissage
-  constant ? Qu'est-ce qui grandit avec `dim` dans la mise à jour d'un poids ?
-- pourquoi un protocole iso-calcul répond-il à une question différente d'un protocole
-  iso-pas, et laquelle des deux voulais-tu ?
-- la courbe en U a-t-elle un creux réel à 12 M, ou ce creux est-il un artefact de
-  l'instabilité ? Quelle mesure trancherait ?
-- pourquoi `A1-petit`, avec 45 750 pas contre 17 750, fait-il moins bien que `A2` alors
-  qu'il a vu 2,6 fois plus de tokens ?
+**L'instabilité en largeur.** La largeur augmente la variation de la sortie, amplifiée
+par le fait qu'Adam renormalise pour que chaque poids se déplace d'environ un pas. Ce
+pas étant trop grand, il dépasse à chaque fois largement le minimum et s'en éloigne
+même plus qu'il ne l'était avant. Le gradient le fait alors repartir en arrière, mais
+encore plus loin qu'à l'état précédent. Si on trace une parabole, on rebondit d'un
+versant à l'autre au lieu de faire de petits pas pour se rapprocher du minimum.
+
+**Ce que le balayage invalide.** Le problème est celui décrit, mais il arrive avant le
+minimum : le pas était trop grand et perdait de l'énergie à rebondir au lieu d'aller
+directement vers le minimum. Une solution, puisque le problème apparaît aux grandes
+dimensions, serait un pas inversement proportionnel à la dimension.
+
+**Chinchilla.** Le vrai facteur est 30/20, soit 1,5 — donc environ 18 millions de
+paramètres à tokens constants. Mais en augmentant la taille du modèle, on ralentit le
+nombre de passages ; après calcul, on tombe à environ 15 millions de paramètres pour un
+entraînement optimal.
+
+**Le mélange du corpus.** `random.shuffle` dépend de la graine, ce qui permet de dire
+qu'à graine identique on a le même mélange, donc le même résultat, octet par octet.
+
+**Pourquoi vérifier plutôt que constater.** Si une erreur est trop petite pour être
+distinguée et qu'elle ne devient pas critique au point que l'histoire entière soit
+écartée, on se retrouve avec un `prepare_stories` qui ne reproduit pas les histoires à
+l'identique, et on perd le sens — alors que la vérification octet par octet est très
+courte.
+
+**Les bugs qui comptent.** Les vrais problèmes sont ceux qui ne se déclarent pas, ou
+mal. Un problème critique qui est repéré et écarté, comme pour les textes, n'est pas un
+vrai problème ; un bug caché qui ne se déclare pas ou mal, comme « aucun pas ne
+stabilise », est vicieux et empêche une correction pérenne.
+
+**Le garde-fou de la nuit.** Ces 4 h 30 étaient déjà allouées, c'était la nuit et rien
+n'empêchait de tourner même dans le vide : il aurait été correct de lancer dans tous les
+cas, en précisant que l'analyse annonçait que ça ne servirait à rien, et de supprimer au
+réveil si cela s'avérait vrai.
+
+**Ce qui m'a bloqué**
+**Le rapport de Chinchilla, inversé puis mal appliqué.** J'ai d'abord dit 20 paramètres
+par token au lieu de 20 tokens par paramètre. Puis, pour corriger mon modèle d'août à
+29,8 tokens par paramètre, j'ai compté 10 tokens en trop sur 30 et conclu à un tiers de
+paramètres supplémentaires, soit 16,5 millions. Le bon facteur était 30/20 = 1,5. Et
+18 millions, c'est à tokens constants, pas à temps constant : à durée fixée, un modèle
+plus gros fait moins de pas, ce qui ramène la cible à 15 millions.
+
 
 ---
 
