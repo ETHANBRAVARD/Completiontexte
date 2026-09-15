@@ -207,6 +207,7 @@ def lancer(nom, dim, blocs, heads, pas_max, racine, val_tous, echantillons, log,
         vieux.unlink()
 
     return {"nom": nom, "dim": dim, "blocs": blocs, "heads": heads,
+            "apprentissage": apprentissage,
             "parametres": n_par, "pas": pas_faits, "duree_s": duree,
             "s_par_pas": par_pas, "tokens_vus": LOT * MAX_LEN * pas_faits,
             "train": train, "val": val,
@@ -259,6 +260,9 @@ def main():
     p.add_argument("--dossier", default="",
                    help="dossier de banc existant : les résultats s'y ajoutent")
     p.add_argument("--pas", type=int, default=2000, help="pas par configuration")
+    p.add_argument("--apprentissage", type=float, default=None,
+                   help="pas d'apprentissage imposé à toutes les configs du banc "
+                        "de taille (défaut : celui de transformer.py)")
     p.add_argument("--lr", action="store_true",
                    help="balayer le pas d'apprentissage au lieu de la taille")
     p.add_argument("--minutes", type=float, default=0,
@@ -337,7 +341,7 @@ def main():
     debut = time.perf_counter()
     for entree in banc:
         nom, dim, blocs, heads = entree[:4]
-        lr = entree[4] if len(entree) > 4 else None
+        lr = entree[4] if len(entree) > 4 else args.apprentissage
         if nom in anciens and not args.refaire:
             log(f"  {nom:12} déjà mesuré, ignoré (--refaire pour le relancer)")
             continue
