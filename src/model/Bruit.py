@@ -91,11 +91,10 @@ def bruit_mult(model,alpha):
         model2['W_1'].append(model['W_1'][i]*torch.randn_like(model['W_1'][i])*alpha+model['W_1'][i])
     for i in range(len(model['W_2'])):
         model2['W_2'].append(model['W_2'][i]*torch.randn_like(model['W_2'][i])*alpha+model['W_2'][i])
-    model2['W_out']=model2['W_out']*torch.randn_like(model['W_out'])*alpha+model2['W_out']
+    model2['W_out']=model['W_out']*torch.randn_like(model['W_out'])*alpha+model2['W_out']
     return(model2)
 
 def bruit_add(model,alpha):
-    maximum=0
     model2=model.copy()
     model2['W_q']=[]
     model2['W_k']=[]
@@ -124,3 +123,29 @@ def bruit_add(model,alpha):
     maximum=model['W_out'].abs().max()
     model2['W_out']=model2['W_out']+torch.randn_like(model['W_out'])*alpha*maximum
     return(model2)
+
+def bruit_mult_unique_list (W,alpha):
+    W2=[]
+    for i in range(len(W)):
+        W2.append(W[i]*torch.randn_like(W[i])*alpha+W[i])
+    return(W2)
+
+def bruit_add_unique_list(W,alpha):
+    maximum=0
+    W2=[]
+    for i in range(len(W)):
+        maximum=W[i].abs().max()
+        W2.append(torch.randn_like(W[i])*alpha*maximum+W[i])
+    return(W2)
+
+def bruit_mult_unique (W,alpha):
+    W2=[]
+    W2.append(W*torch.randn_like(W)*alpha+W)
+    return(W2)
+
+def bruit_add_unique(W,alpha):
+    maximum=0
+    W2=[]
+    maximum=W.abs().max()
+    W2.append(torch.randn_like(W)*alpha*maximum+W)
+    return(W2)

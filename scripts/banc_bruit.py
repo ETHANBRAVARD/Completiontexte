@@ -41,8 +41,35 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "src" / "model"))
 sys.path.insert(0, str(ROOT / "src" / "tooling"))
 
+FAMILLES = ["W_q", "W_k", "W_v", "W_o", "W_1", "W_2", "W_out"]
+
 CHECKPOINT = ROOT / "runs/echelle-20260908-2339/A2-actuel/20260909-0239-sauvegarde_17000.pt"
 ALPHAS = [0.003, 0.01, 0.02, 0.05, 0.1, 0.2, 0.3, 0.5, 1.0]
+
+
+def bruiter_famille(Bruit, modele, loi, famille, alpha):
+    """Rend une copie du modèle où SEULE `famille` est bruitée.
+
+    Pour les six familles qui sont des listes, on appelle directement les
+    fonctions `bruit_*_unique` d'Ethan. `W_out` est un tenseur seul, que ces
+    fonctions ne savent pas traiter : on passe alors par la fonction complète et
+    on n'en retient que `W_out`, le reste du modèle restant celui d'origine.
+    Dans les deux cas, aucune logique de bruit n'est écrite ici.
+    """
+    modele2 = modele.copy()
+    # Les familles à plusieurs blocs passent par la variante « liste », W_out par
+    # la variante « tenseur ». On tolère qu'elle rende soit un tenseur, soit une
+    # liste d'un élément — la signature d'Ethan a changé une fois, elle peut
+    # changer encore, et un banc ne doit pas casser pour si peu.
+    if famille == "W_out":
+        unique = {"mult": Bruit.bruit_mult_unique, "add": Bruit.bruit_add_unique}[loi]
+        sortie = unique(modele["W_out"], alpha)
+        modele2["W_out"] = sortie[0] if isinstance(sortie, list) else sortie
+    else:
+        liste = {"mult": Bruit.bruit_mult_unique_list,
+                 "add": Bruit.bruit_add_unique_list}[loi]
+        modele2[famille] = liste(modele[famille], alpha)
+    return modele2
 
 
 def mesurer(Bruit, modele, lot, tok_val, repetition):
@@ -109,6 +136,44 @@ def tracer(resultats, base, chemin, titre_ckpt, vocabulaire=2080):
     plt.close(fig)
 
 
+def tracer_familles(par_famille, base, chemin, titre_ckpt, modele):
+    """Une courbe par famille de matrices, deux panneaux (une loi chacun)."""
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+    import tracer as T
+
+    plancher = 1e-4
+    fig, axes = plt.subplots(1, 2, figsize=(12.5, 5.4), sharey=True)
+    for ax, loi, titre, sous in ((axes[0], "mult", "Bruit multiplicatif", "σ = alpha × |w|"),
+                                 (axes[1], "add", "Bruit additif",
+                                  "σ = alpha × max|w| de la matrice")):
+        T._cadre(ax, titre, sous, "alpha (log)",
+                 "écart de perte (log)" if loi == "mult" else "")
+        ax.set_xscale("log"); ax.set_yscale("log")
+        for i, famille in enumerate(FAMILLES):
+            pts = par_famille[loi][famille]
+            n = (sum(t.numel() for t in modele[famille]) if famille != "W_out"
+                 else modele["W_out"].numel())
+            ax.plot([q["alpha"] for q in pts],
+                    [max(q["ecart_apparie"], plancher) for q in pts],
+                    color=T.SERIES[i % len(T.SERIES)], linewidth=2, marker="o",
+                    markersize=4.5, markeredgecolor=T.SURFACE, markeredgewidth=1.1,
+                    zorder=3, label=f"{famille}  ({n/1e6:.1f} M poids)")
+        ax.axhline(0.01, color=T.GRILLE, linestyle=":", linewidth=1.1)
+    leg = axes[0].legend(frameon=False, fontsize=8.5, loc="upper left")
+    for t in leg.get_texts():
+        t.set_color(T.ENCRE_2)
+    fig.suptitle("Où le modèle est fragile — une famille de matrices bruitée à la fois",
+                 x=0.055, ha="left", color=T.ENCRE, fontsize=13, fontweight="bold")
+    fig.text(0.055, 0.905, f"{titre_ckpt} — écart à la mesure sans bruit "
+             f"({base['moyenne']:.4f}), mêmes lots", color=T.ENCRE_2, fontsize=9.5)
+    fig.set_facecolor(T.SURFACE)
+    fig.tight_layout(rect=[0, 0, 1, 0.93])
+    fig.savefig(chemin, dpi=150, facecolor=T.SURFACE)
+    plt.close(fig)
+
+
 def main():
     p = argparse.ArgumentParser(description=__doc__,
                                 formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -118,6 +183,9 @@ def main():
     p.add_argument("--alphas", default=",".join(str(a) for a in ALPHAS))
     p.add_argument("--repetitions", type=int, default=5)
     p.add_argument("--lot", type=int, default=32)
+    p.add_argument("--par-famille", action="store_true",
+                   help="bruiter une famille de matrices à la fois, pour situer "
+                        "la fragilité au lieu de la moyenner sur tout le modèle")
     p.add_argument("--retracer", default="",
                    help="dossier d'un banc existant : refaire le graphique depuis "
                         "son resultats.json, sans rien mesurer")
@@ -161,6 +229,42 @@ def main():
             "par_repetition": base_par_rep}
     print(f"  sans bruit : {base['moyenne']:.4f} ± {base['ecart_type']:.4f}   "
           f"({(time.perf_counter()-t0)/len(reps):.2f} s par mesure)\n")
+
+    if args.par_famille:
+        par_famille = {}
+        print(f"  {'loi':5}{'famille':>8}{'alpha':>8}{'écart apparié':>16}{'± σ':>9}")
+        for loi in ("mult", "add"):
+            for famille in FAMILLES:
+                pts = []
+                for ia, alpha in enumerate(alphas):
+                    ecarts = []
+                    for r in reps:
+                        torch.manual_seed(100_000 * r + 1_000 * ia
+                                          + 17 * FAMILLES.index(famille)
+                                          + (0 if loi == "mult" else 1))
+                        bruite = bruiter_famille(Bruit, modele, loi, famille, alpha)
+                        ecarts.append(mesurer(Bruit, bruite, args.lot, tok_val, r)
+                                      - base_par_rep[r])
+                        del bruite
+                    pts.append({"alpha": alpha,
+                                "ecart_apparie": statistics.mean(ecarts),
+                                "ecart_apparie_sigma": (statistics.stdev(ecarts)
+                                                        if len(reps) > 1 else 0.0)})
+                    print(f"  {loi:5}{famille:>8}{alpha:8g}{pts[-1]['ecart_apparie']:+16.4f}"
+                          f"{pts[-1]['ecart_apparie_sigma']:9.4f}")
+                par_famille.setdefault(loi, {})[famille] = pts
+        contenu = {"checkpoint": str(ckpt.relative_to(ROOT)), "pas": modele.get("i"),
+                   "vocabulaire": modele.get("alph", 2080), "lot": args.lot,
+                   "repetitions": len(reps), "sans_bruit": base,
+                   "par_famille": par_famille, "duree_s": time.perf_counter() - t0}
+        (dossier / "resultats.json").write_text(
+            json.dumps(contenu, indent=1, ensure_ascii=False), encoding="utf-8")
+        tracer_familles(par_famille, base, dossier / "familles.png",
+                        f"{ckpt.parent.name}, pas {modele.get('i')}", modele)
+        print(f"\ndurée : {(time.perf_counter()-t0)/60:.1f} min")
+        print(f"écrit : {(dossier / 'resultats.json').relative_to(ROOT)}, "
+              f"{(dossier / 'familles.png').relative_to(ROOT)}")
+        return 0
 
     resultats = {"mult": [], "add": []}
     fonctions = {"mult": Bruit.bruit_mult, "add": Bruit.bruit_add}

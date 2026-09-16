@@ -1708,9 +1708,7 @@ battrait un SSM sur ce pour quoi elle a été conçue. Ce n'est pas mon terrain.
 
 #### 06-07/09/2026 — l'encodeur : mémoïsation, puis passage en flux
 
-> Log factuel tenu par Claude. Rubrique de compréhension dictée par Ethan en réponse à
-> quinze questions, puis mise au propre par Claude — le fond et les erreurs sont les
-> siens, la rédaction est partagée.
+> Log factuel tenu par Claude. Rubrique de compréhension écrite par Ethan
 
 **Le point de départ.** Le bilan du 23/08 désignait le corpus comme facteur limitant :
 450 Mo utilisés sur 2,2 Go, 29,8 tokens vus par paramètre contre 20 à l'optimum. Le
@@ -2022,7 +2020,7 @@ plus gros fait moins de pas, ce qui ramène la cible à 15 millions.
 
 ---
 
-#### 14-16/09/2026 — le pas d'apprentissage, le bruit, et le banc refait
+#### 14-16/09/2026 — le pas d'apprentissage, et le banc refait
 
 > Log factuel tenu par Claude.
 
@@ -2036,6 +2034,33 @@ le meilleur de deux pas par taille. Résultats complets dans le README. En trois
 divergence était un problème de pas et non de capacité ; la courbe en U tient avec son creux
 à ~12 M ; la largeur bat la profondeur à calcul égal, parce qu'un bloc de plus coûte du temps
 sériel là où la largeur se parallélise.
+
+**Une erreur de ma part, silencieuse.** Le garde-fou de la nuit du 14 au 15 a annulé
+4 h 30 de calcul en annonçant « aucun pas ne stabilise dim=640 » — c'était faux. J'avais modifié
+`echelle.py` **trois secondes après** que le balayage l'ait chargé ; ses résultats ne contenaient
+donc pas le champ que ma sélection allait chercher. Le `KeyError` partait dans `/dev/null`, et une
+variable vide était lue comme une réponse négative. Trois issues possibles, deux réponses : le code
+confondait « je ne sais pas » avec « non ».
+
+**Rubrique de compréhension** — à écrire par Ethan, sans relire le code. Questions ouvertes :
+
+- la largeur l'emporte à calcul égal. Que dirait un protocole à pas égal, et lequel des deux
+  te concerne pour choisir la forme de ton run long ?
+- pourquoi le pas optimal décroît-il avec la largeur, et pourquoi les petites configurations
+  préfèrent-elles au contraire le pas le plus grand ?
+
+---
+
+
+### Étape 8 — Substrat analogique   (branche ouverte le 14/09/2026)
+
+> Ouverte avant la fin de l'étape 5, contrairement à ce que prévoit la feuille de route.
+> Les mesures portent donc sur des modèles intermédiaires de 90 minutes, pas sur le modèle
+> final : elles seront à refaire dessus.
+
+#### 14-16/09/2026 — premières mesures de bruit
+
+> Log factuel tenu par Claude.
 
 **Le banc de bruit** (`scripts/banc_bruit.py`). Perte de validation en fonction de l'intensité
 du bruit, deux lois, cinq répétitions, **lots de validation identiques à répétition égale** :
@@ -2058,27 +2083,96 @@ Sur quatre tailles, la robustesse croît avec la taille puis sature :
 Réserve : les quatre checkpoints ne sont pas au même niveau d'entraînement (perte de base de
 1,60 à 1,76), donc la profondeur n'est pas isolée dans la dernière colonne.
 
-**Deux erreurs de ma part, toutes deux silencieuses.**
+**Une erreur de ma part.** Le premier tracé portait la perte brute : l'axe montait à 80 et
+écrasait toute la zone de dégradation. Refait en écart apparié sur axe logarithmique.
 
-- Le garde-fou de la nuit du 14 au 15 a annulé 4 h 30 de calcul en annonçant « aucun pas ne
-  stabilise dim=640 » — c'était faux. J'avais modifié `echelle.py` **trois secondes après** que
-  le balayage l'ait chargé ; ses résultats ne contenaient donc pas le champ que ma sélection
-  allait chercher. Le `KeyError` partait dans `/dev/null`, et une variable vide était lue comme
-  une réponse négative. Trois issues possibles, deux réponses : le code confondait « je ne sais
-  pas » avec « non ».
-- Le premier tracé du banc de bruit portait la perte brute : l'axe montait à 80 et écrasait
-  toute la zone de dégradation. Refait en écart apparié sur axe logarithmique.
+**Ce que j'ai compris**
 
-**Rubrique de compréhension** — à écrire par Ethan, sans relire le code. Questions ouvertes :
+**L'idée des bits.** Mes poids sont encodés en float32, sur une plage qui vaut plus ou
+moins la valeur maximale du poids en valeur absolue : si le maximum est 10, ils vont de
+−10 à +10. Un flottant a 24 bits de mantisse et un pas relatif, donc assez fin pour être
+considéré exact. Un support analogique, lui, a un pas uniforme sur toute la plage. Or le
+bruit vaut σ, et ce pas de bruit rapporté au maximum vaut 1/2⁸ : on n'a donc que 2⁸ états
+de poids distincts. C'est de là que viennent les 8 bits.
 
-- la largeur l'emporte à calcul égal. Que dirait un protocole à pas égal, et lequel des deux
-  te concerne pour choisir la forme de ton run long ?
-- pourquoi le pas optimal décroît-il avec la largeur, et pourquoi les petites configurations
-  préfèrent-elles au contraire le pas le plus grand ?
-- pourquoi la mesure appariée est-elle vingt fois plus précise que la perte brute, alors
-  qu'elle mesure la même chose ?
-- les deux courbes de bruit ont une pente de 2 en log-log : pourquoi 2 et pas 1, autour d'un
-  modèle entraîné ?
+**Quelle loi répond à la question des bits.** C'est l'additif, parce qu'il est exprimé
+dans la bonne unité : une fraction de la plage, comme un nombre de niveaux. Le
+multiplicatif est une fraction du poids, donc un poids de 0,01 reçoit un bruit cent fois
+plus petit qu'un poids de 1 — il n'existe alors pas un nombre de niveaux unique. Que
+l'additif soit dix fois plus sévère en est une conséquence, pas la raison.
+
+**Pourquoi les petits modèles tolèrent moins le bruit.** Sur les petits modèles,
+l'information est plus condensée : chaque poids porte plus de sens, donc chaque
+altération de ce poids modifie davantage la sortie, et la loss est moins bonne. Dans un
+modèle plus grand, l'information est plus répartie, et certains poids agissent un peu
+comme des poids de redondance en portant une partie d'information déjà contenue dans
+d'autres : les altérer a donc moins d'impact.
+
+**L'écart apparié.** J'ai d'abord parlé d'écart là où je pensais variance. Les deux
+versions donnent le même nombre — la moyenne des différences est la différence des
+moyennes. Ce qu'on cherche à étudier, c'est la variance des différences, et calculer
+les moyennes avant perd cette information. Le gain vient de ce que les deux mesures
+portent sur les mêmes lots : la difficulté des textes est commune aux deux et disparaît
+dans la soustraction.
+
+**Pourquoi une pente de 2.** Les termes du premier ordre s'annulent : le bruit est
+centré, donc pour chaque tirage qui pousse un poids d'un côté, un autre le pousse de
+l'autre. Le second terme du développement est quadratique par construction, il est
+positif au minimum puisque la vallée a des parois, et il ne s'annule pas. C'est donc lui
+qui reste et qui domine — d'où alpha au carré, non par choix mais parce que c'est le
+premier terme qui survit.
+
+**Pourquoi un bruit fixe une résolution.** La résolution est imposée par la capacité à
+distinguer deux valeurs : une conductance dans le cas physique, un poids dans le cas
+numérique. Si deux valeurs sont séparées de moins que σ, le bruit les rend
+indiscernables, et le système se comporte comme si elles étaient identiques. On retrouve
+ainsi l'idée d'un ensemble discret de valeurs possibles, sans qu'aucun arrondi n'ait eu
+lieu.
+
+**Le 2 de log2(2/alpha), et le gaspillage.** Pour une matrice dont les poids vont de
+−2,4 à +1,1, la plage utilisée devient −2,4 à +2,4 : elle ne correspond pas à la vraie
+plage et la surestime, puisqu'on prend −max et +max au lieu du minimum et du maximum
+réels. Il y a donc gaspillage — 4,8 au lieu de 3,5, soit environ un demi-bit perdu. La
+symétrie vient de la paire différentielle, dont les deux cellules ont la même plage ; on
+récupère ce demi-bit en ajoutant un décalage propre à la matrice.
+
+---
+
+#### 16/09/2026 — où le modèle est fragile
+
+> Log factuel tenu par Claude.
+
+**Balayage par famille de matrices** (`banc_bruit.py --par-famille`), sur trois checkpoints :
+une seule famille bruitée à la fois, sept familles, deux lois, sept intensités, cinq
+répétitions. Résultats complets dans le README.
+
+Le classement de fragilité est **identique sur les trois modèles**, de 4,3 à 24,4 M de
+paramètres, et il ne s'explique pas par le volume : `W_1` et `W_2` ont la même forme et le
+même nombre de poids, `W_2` est deux à trois fois plus fragile. Écart de **2,3 bits** entre
+`W_2` (7,5) et `W_q` (5,2).
+
+**Chiffrage de deux pistes.**
+
+- *Précision mixte en numérique* : 8 % d'économie seulement, parce que les familles fragiles
+  sont aussi les plus grosses — `W_1` et `W_2` pèsent 7 M des 11,4 M de poids.
+- *Duplication de cellules en analogique* : le bruit décroît en 1/√N, donc égaliser `W_2` sur
+  `W_q` demande 27 cellules par poids, et ×14,7 sur la surface totale du modèle. Le gain est
+  en racine, le prix est linéaire. Simulable sans rien coder : N cellules équivalent à rejouer
+  la famille à `alpha/√N`.
+
+**Une erreur d'extraction de ma part.** Mon premier tableau affichait « > 50 % » pour trois
+familles d'`A1` — l'interpolation ne trouvait pas de point d'encadrement et je l'avais lu comme
+« plus tolérant ». C'était l'inverse : ces familles dépassent déjà le seuil au **plus petit**
+alpha testé. Un cas non traité rendu comme une valeur plausible, encore une fois.
+
+**Ce que j'ai compris**
+
+**Piste.** Il suffirait de dupliquer les cellules des W les plus fragiles — W_2, W_o et
+W_out, ceux qui demandent plus de 7 bits — pour les stabiliser au niveau de W_q. N
+cellules en parallèle divisent le bruit par √N, ce qui se simule en rejouant la famille
+à alpha/√N, sans rien coder. Mais le chiffrage est décevant : égaliser W_2 sur W_q
+demande 27 cellules par poids, et ×14,7 sur la surface du modèle. Le gain est en racine,
+le prix est linéaire.
 
 ---
 

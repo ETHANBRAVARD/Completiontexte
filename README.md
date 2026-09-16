@@ -376,6 +376,86 @@ donc sa propre source et reste rejouable. Chaque substitution doit correspondre 
 une fois, sinon le banc s'arrête : sans ce garde-fou, un simple renommage ferait tourner
 les six configurations sur les valeurs par défaut en affichant des résultats crédibles.
 
+### Branche 8, première mesure : combien de bits les poids portent-ils ?
+
+Sonde préliminaire, sur des modèles intermédiaires de 90 minutes — pas sur le modèle final.
+Deux lois de bruit gaussien appliquées aux sept familles de produits matriciels, sans jamais
+toucher aux layernorms ni aux biais, qui resteraient numériques sur un substrat analogique :
+
+```
+multiplicatif   σ = alpha × |w|             bruit proportionnel au poids
+additif         σ = alpha × max|w|          bruit fixe, en fraction de la plage de la matrice
+```
+
+Le bruit est tiré par élément, à chaque mesure. Point de méthode : **les lots de validation sont
+identiques d'un alpha à l'autre** — `tireur_de_lot` tire avec le module `random`, le bruit avec le
+générateur de torch, donc les deux graines sont fixées séparément. L'écart apparié à la mesure
+sans bruit a une dispersion de 0,0009 là où la perte brute varie de 0,0057 : la variance de
+l'échantillonnage s'annule, seul l'effet du bruit subsiste.
+
+**Tolérance globale** (`A2-actuel`, 12,4 M, perte de base 1,5319), seuil de +0,01 de perte :
+
+| | multiplicatif | additif |
+|---|---|---|
+| +0,01 (imperceptible) | 6,1 % | 0,63 % |
+| +0,1 (visible) | 18,6 % | 1,89 % |
+
+Les deux courbes ont une pente de **2,05** et **2,09** en échelle log-log : doubler le bruit
+quadruple la dégradation — le développement au second ordre autour d'un minimum, où le terme
+linéaire s'annule.
+
+**Traduit en bits.** Un bruit d'écart-type σ rend indistinguables deux valeurs plus proches que σ.
+Sur une plage utile de 2·max|w|, cela laisse 2/alpha niveaux, soit log2(2/alpha) bits :
+
+```
+additif 0,63 % de la plage   ->  8,3 bits en virgule fixe
+multiplicatif 6,1 % du poids ->  4,0 bits de mantisse en virgule flottante
+```
+
+Les deux lois répondent à deux questions de matériel différentes : un crossbar analogique a un pas
+constant, donc c'est l'additif qui le concerne ; un accélérateur numérique peut être l'un ou
+l'autre, ce qui explique que `fp8` fonctionne là où `int4` échoue.
+
+**La robustesse croît avec la taille, puis sature.** Seuil de +0,01 :
+
+| | A1 (4,3 M) | A2 (12,4 M) | A3 (24,4 M) | B2 (28,6 M, profond) |
+|---|---|---|---|---|
+| multiplicatif | 3,8 % | 6,1 % | 6,7 % | 6,8 % |
+| additif | 0,32 % | 0,63 % | 0,68 % | 0,88 % |
+
+Le rapport des tolérances donne le rapport des courbures : `(6,1/3,8)² ≈ 2,6`. Le minimum d'`A1`
+est 2,6 fois plus étroit que celui d'`A2` — un petit modèle n'est pas seulement moins bon, il est
+posé dans une vallée plus resserrée, faute de redondance entre ses poids.
+
+### Où le modèle est fragile
+
+Une famille de matrices bruitée à la fois. Seuil de +0,01 en additif :
+
+| famille | poids | A1 | A2 | A3 | bits (A2) |
+|---|---|---|---|---|---|
+| `W_2` sortie du MLP | 3,5 M | < 1,0 % | **1,09 %** | **1,09 %** | 7,5 |
+| `W_o` sortie d'attention | 0,9 M | < 1,0 % | 1,31 % | 1,65 % | 7,2 |
+| `W_out` projection finale | 0,8 M | 1,20 % | 1,34 % | 1,45 % | 7,2 |
+| `W_1` entrée du MLP | 3,5 M | < 1,0 % | 1,94 % | 2,59 % | 6,7 |
+| `W_v` | 0,9 M | 1,16 % | 2,80 % | 2,74 % | 6,2 |
+| `W_k` | 0,9 M | 1,18 % | 2,91 % | 2,81 % | 6,1 |
+| `W_q` | 0,9 M | 2,35 % | **5,63 %** | **6,34 %** | 5,2 |
+
+Le même ordre sort des trois modèles, de 4,3 à 24,4 M de paramètres. **Et ce n'est pas une question
+de volume** : `W_1` et `W_2` ont exactement la même forme et le même nombre de poids, et `W_2` est
+deux à trois fois plus fragile ; `W_q`, `W_k` et `W_v` sont identiques en dimensions et vont de
+2,8 % à 5,6 %. La fragilité tient au **rôle** de la matrice dans le calcul.
+
+**Ce que la précision mixte rapporterait — et pourquoi c'est décevant.** L'écart entre la famille la
+plus exigeante et la plus tolérante vaut 2,3 bits. Mais les familles fragiles sont aussi les plus
+grosses : `W_1` et `W_2` pèsent 7 M des 11,4 M de poids. En numérique, passer de 8 bits uniformes à
+une allocation par famille ne fait gagner que **8 %** — 10,5 Mo contre 11,4.
+
+En analogique, on peut réduire le bruit d'une matrice en mettant N cellules en parallèle par poids :
+les conductances s'ajoutent, les bruits s'ajoutent en quadrature, le rapport gagne √N. Amener `W_2`
+au niveau de `W_q` demanderait donc 27 cellules, et l'ensemble du modèle **14,7 fois la surface**.
+Le gain est en racine, le prix est linéaire.
+
 ## Structure
 
 ```
