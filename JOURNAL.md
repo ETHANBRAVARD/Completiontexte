@@ -2042,12 +2042,37 @@ donc pas le champ que ma sélection allait chercher. Le `KeyError` partait dans 
 variable vide était lue comme une réponse négative. Trois issues possibles, deux réponses : le code
 confondait « je ne sais pas » avec « non ».
 
-**Rubrique de compréhension** — à écrire par Ethan, sans relire le code. Questions ouvertes :
+**Ce que j'ai compris**
 
-- la largeur l'emporte à calcul égal. Que dirait un protocole à pas égal, et lequel des deux
-  te concerne pour choisir la forme de ton run long ?
-- pourquoi le pas optimal décroît-il avec la largeur, et pourquoi les petites configurations
-  préfèrent-elles au contraire le pas le plus grand ?
+**Le protocole qui me concerne.** Il s'agit bien d'un protocole à calcul égal, car le
+temps passé à calculer est le même, et c'est ça l'unité importante dans mes runs longs :
+je considère que le facteur limitant d'un run long est le temps de calcul. La mesure à
+pas égal montre d'ailleurs que B1 et B2 sont à égalité — l'avantage de la largeur à
+calcul égal vient entièrement de sa vitesse par pas, pas d'un meilleur apprentissage.
+
+**Pourquoi le petit pas est mauvais pour les petites configurations.** Elles ne
+divergent pas à 5·10⁻⁴, elles avancent simplement moins loin. À nombre de pas fixé par
+le temps, la distance parcourue dépend de la taille du pas ; une petite configuration
+supporte un pas plus grand, puisque le seuil de stabilité varie comme l'inverse de la
+largeur. Lui donner 5·10⁻⁴, c'est laisser de la marge inutilisée : elle avance
+prudemment alors qu'elle pouvait avancer vite sans risque.
+
+**Pourquoi croiser les deux séries supprime le biais.** Le croisement permet de
+récupérer le meilleur pas pour chaque taille, et donc de supprimer le biais qui était
+que certaines configurations sont très mauvaises à certains pas — les gros réseaux à
+grand pas ne progressent jamais, ils divergent. C'est un autre problème, sans rapport
+avec la courbe en U.
+
+Ce qui reste à faire pour être sûr du creux : aucun des optima n'est encadré. A1 et A2
+ont choisi 10⁻³, le plus grand des deux pas testés, et A4 a choisi 5·10⁻⁴, le plus
+petit. Chaque point est donc une borne inférieure de ce que sa taille peut donner. Il
+faudrait trois pas par taille, avec le meilleur au milieu.
+
+**Ce qu'un garde-fou doit faire quand il ne sait pas conclure.** Il doit continuer dans
+le doute si le temps est alloué. Si au contraire le temps est une denrée rare et qu'il y
+a quelqu'un derrière l'écran qui pourra relancer, mieux vaut échouer bruyamment pour lui
+laisser choisir. Le défaut dépend donc de ce qui est récupérable — c'est le même
+principe qui, pour l'encodeur, conduisait à la conclusion inverse.
 
 ---
 

@@ -366,9 +366,22 @@ taille, et que le 08/09 laissait sans réponse faute d'un run stable :
 est dans la colonne des pas : le modèle profond coûte 745 ms contre 617, donc en 90 minutes il
 fait 1 500 pas de moins. Ses onze blocs s'exécutent en série, là où la largeur se parallélise.
 
-Réserve : ce résultat vaut **à budget de calcul fixé**. À nombre de pas égal, le classement
-pourrait s'inverser — la profondeur perd ici surtout parce qu'elle est plus lente, pas parce
-qu'elle apprend moins par pas.
+**Et à pas égal, elles sont à égalité.** Les deux journaux, comparés au même nombre de pas :
+
+| pas | B1-large (640 × 5) | B2-profond (448 × 11) |
+|---|---|---|
+| 2 000 | 2,2139 | **2,2117** |
+| 5 000 | **1,7660** | 1,7727 |
+| 7 000 | **1,6680** | 1,6752 |
+
+Les écarts sont de l'ordre de 0,007, et le classement s'inverse d'un point à l'autre. À nombre de
+pas fixé, la profondeur et la largeur apprennent donc **aussi bien**. Tout l'avantage de `B1` à
+calcul égal vient de sa **vitesse** — 617 ms par pas contre 745, soit 1 500 pas de plus en
+90 minutes. Onze blocs s'exécutent en série ; la largeur, elle, se parallélise.
+
+Le résultat n'est donc pas « la largeur apprend mieux » mais « la largeur coûte moins cher par
+pas ». Ce qui reste décisif si le temps de calcul est la ressource rare, et cesse de l'être si
+c'est la mémoire ou le nombre de paramètres.
 
 Un mot sur l'outil : `scripts/echelle.py` ne modifie jamais `transformer.py`. Il en dépose
 une copie paramétrée dans le dossier de chaque run et exécute celle-là — chaque run porte
