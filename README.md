@@ -313,6 +313,63 @@ reste sans réponse, puisque B1 a divergé.
 Le banc du pas d'apprentissage (`--lr`) est écrit pour lever ces deux doutes : trois pas
 décroissants à `dim=640`, plus un contrôle à `dim=512`. Deux heures.
 
+### Les deux doutes levés : le pas d'abord, puis le banc refait
+
+**Le balayage du pas** (2 h, 30 min par configuration) tranche la première question. À `dim=640`,
+les trois pas plus faibles descendent régulièrement là où 0,001 remontait :
+
+| au pas 2000 | lr 0,001 | 5·10⁻⁴ | 2,5·10⁻⁴ | 1,25·10⁻⁴ |
+|---|---|---|---|---|
+| dim 640 | 4,51 *(monte)* | **2,13** | 2,22 | 2,49 |
+
+Le seuil d'instabilité se situe donc entre 5·10⁻⁴ et 10⁻³. Et le contrôle à `dim=512` confirme le
+soupçon : 10⁻³ **handicapait déjà** cette largeur sans la faire diverger — 2,12 contre 2,39 au pas
+2000, 1,97 contre 2,07 au pas 3000.
+
+**Le banc refait à 5·10⁻⁴** (9 h, six configurations, même protocole iso-calcul) donne la seconde
+série. En retenant pour chaque taille le meilleur de ses deux pas :
+
+| config | forme | paramètres | val à 10⁻³ | val à 5·10⁻⁴ | retenu |
+|---|---|---|---|---|---|
+| A1-petit | 256 × 4 | 4,32 M | **1,6194** | 1,6492 | 10⁻³ |
+| **A2-actuel** | 384 × 6 | 12,39 M | **1,5228** | 1,5693 | 10⁻³ |
+| A3-moyen | 512 × 7 | 24,38 M | 1,6454 | **1,6059** | 5·10⁻⁴ |
+| A4-grand | 640 × 8 | 42,28 M | *diverge* | **1,7107** | 5·10⁻⁴ |
+| B1-large | 640 × 5 | 27,52 M | *diverge* | **1,6541** | 5·10⁻⁴ |
+| B2-profond | 448 × 11 | 28,58 M | 1,7630 | **1,6752** | 5·10⁻⁴ |
+
+Trois conclusions.
+
+**La divergence était bien un problème de pas, pas de capacité.** `A4` passe de 4,91 à 1,7107,
+`B1` de 4,45 à 1,6541, sans rien changer d'autre que le pas d'apprentissage.
+
+**La courbe en U tient, et son creux était au bon endroit.** Le handicap existait — `A3` gagne
+0,04 en passant à 5·10⁻⁴ — mais pas assez pour dépasser `A2`. À 90 minutes de calcul sur cette
+machine, l'optimum reste autour de **12 M de paramètres**.
+
+**Le pas optimal décroît avec la largeur.** Les deux plus petites configurations préfèrent 10⁻³,
+les quatre plus larges préfèrent 5·10⁻⁴. C'est le comportement que prédit la théorie : le pas
+maximal stable varie comme l'inverse de la largeur, ce que confirme aussi le seuil mesuré —
+384 → 640 fait ×1,67, et le seuil passe de ~10⁻³ à ~6·10⁻⁴.
+
+### Profondeur contre largeur
+
+La question que le run d'août ne pouvait pas trancher, faute d'avoir séparé la profondeur de la
+taille, et que le 08/09 laissait sans réponse faute d'un run stable :
+
+| | forme | paramètres | pas faits | ms/pas | perte val |
+|---|---|---|---|---|---|
+| **B1-large** | 640 × 5 | 27,52 M | 8 750 | 617 | **1,6541** |
+| B2-profond | 448 × 11 | 28,58 M | 7 250 | 745 | 1,6752 |
+
+**À calcul égal, la largeur l'emporte** — de 0,021, avec 4 % de paramètres en moins. Le mécanisme
+est dans la colonne des pas : le modèle profond coûte 745 ms contre 617, donc en 90 minutes il
+fait 1 500 pas de moins. Ses onze blocs s'exécutent en série, là où la largeur se parallélise.
+
+Réserve : ce résultat vaut **à budget de calcul fixé**. À nombre de pas égal, le classement
+pourrait s'inverser — la profondeur perd ici surtout parce qu'elle est plus lente, pas parce
+qu'elle apprend moins par pas.
+
 Un mot sur l'outil : `scripts/echelle.py` ne modifie jamais `transformer.py`. Il en dépose
 une copie paramétrée dans le dossier de chaque run et exécute celle-là — chaque run porte
 donc sa propre source et reste rejouable. Chaque substitution doit correspondre exactement

@@ -2022,6 +2022,66 @@ plus gros fait moins de pas, ce qui ramène la cible à 15 millions.
 
 ---
 
+#### 14-16/09/2026 — le pas d'apprentissage, le bruit, et le banc refait
+
+> Log factuel tenu par Claude.
+
+**Le balayage du pas** (2 h). Quatre runs de 30 min, arrêt au chronomètre. À `dim=640`, les pas
+5·10⁻⁴, 2,5·10⁻⁴ et 1,25·10⁻⁴ descendent tous régulièrement — 2,13, 2,22 et 2,49 au pas 2000 —
+là où 10⁻³ remontait à 4,51. Le contrôle à `dim=512` montre que 10⁻³ handicapait déjà cette
+largeur sans la faire diverger.
+
+**Le banc refait à 5·10⁻⁴** (9 h, six configurations). Croisé avec la série du 08/09, il donne
+le meilleur de deux pas par taille. Résultats complets dans le README. En trois lignes : la
+divergence était un problème de pas et non de capacité ; la courbe en U tient avec son creux
+à ~12 M ; la largeur bat la profondeur à calcul égal, parce qu'un bloc de plus coûte du temps
+sériel là où la largeur se parallélise.
+
+**Le banc de bruit** (`scripts/banc_bruit.py`). Perte de validation en fonction de l'intensité
+du bruit, deux lois, cinq répétitions, **lots de validation identiques à répétition égale** :
+`tireur_de_lot` tire avec le module `random`, les fonctions de bruit avec le générateur de
+torch, donc on fixe les deux séparément. L'écart apparié à la mesure sans bruit a une
+dispersion de 0,0009 là où la perte brute varie de 0,0057 — la variance de l'échantillonnage
+s'annule, seul l'effet du bruit reste.
+
+Sur `A2-actuel`, seuil de +0,01 de perte : **alpha ≈ 6 % en multiplicatif, ≈ 0,6 % en additif**
+(en fraction de la plage de conductance). Les deux courbes ont une pente d'environ 2 en
+échelle log-log, et sont décalées d'un facteur ~10 — le rapport entre max|w| et |w| typique.
+
+Sur quatre tailles, la robustesse croît avec la taille puis sature :
+
+| écart de perte | A1 (4,3 M) | A2 (12,4 M) | A3 (24,4 M) | B2 (28,6 M, profond) |
+|---|---|---|---|---|
+| multiplicatif α = 0,1 | +0,067 | +0,028 | +0,022 | +0,021 |
+| additif α = 0,02 | +0,590 | +0,113 | +0,089 | +0,054 |
+
+Réserve : les quatre checkpoints ne sont pas au même niveau d'entraînement (perte de base de
+1,60 à 1,76), donc la profondeur n'est pas isolée dans la dernière colonne.
+
+**Deux erreurs de ma part, toutes deux silencieuses.**
+
+- Le garde-fou de la nuit du 14 au 15 a annulé 4 h 30 de calcul en annonçant « aucun pas ne
+  stabilise dim=640 » — c'était faux. J'avais modifié `echelle.py` **trois secondes après** que
+  le balayage l'ait chargé ; ses résultats ne contenaient donc pas le champ que ma sélection
+  allait chercher. Le `KeyError` partait dans `/dev/null`, et une variable vide était lue comme
+  une réponse négative. Trois issues possibles, deux réponses : le code confondait « je ne sais
+  pas » avec « non ».
+- Le premier tracé du banc de bruit portait la perte brute : l'axe montait à 80 et écrasait
+  toute la zone de dégradation. Refait en écart apparié sur axe logarithmique.
+
+**Rubrique de compréhension** — à écrire par Ethan, sans relire le code. Questions ouvertes :
+
+- la largeur l'emporte à calcul égal. Que dirait un protocole à pas égal, et lequel des deux
+  te concerne pour choisir la forme de ton run long ?
+- pourquoi le pas optimal décroît-il avec la largeur, et pourquoi les petites configurations
+  préfèrent-elles au contraire le pas le plus grand ?
+- pourquoi la mesure appariée est-elle vingt fois plus précise que la perte brute, alors
+  qu'elle mesure la même chose ?
+- les deux courbes de bruit ont une pente de 2 en log-log : pourquoi 2 et pas 1, autour d'un
+  modèle entraîné ?
+
+---
+
 ## Log des `PSEUDOCODE`
 
 Tenu par Claude. Une ligne par usage.
