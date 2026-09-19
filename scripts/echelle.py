@@ -91,22 +91,27 @@ PARTIES = {
 
 
 def source_parametree(dim, heads, blocs, pas_max, dossier, val_tous, echantillons,
-                      apprentissage=None):
+                      apprentissage=None, schedule="continu", amorce=1000, fin=1000,
+                      clip=None):
     """Rend le source de transformer.py avec les hyperparamètres substitués."""
     src = MODELE.read_text(encoding="utf-8")
     remplacements = [
         (r"^dim=\d+$",                      f"dim={dim}"),
         (r"^num_heads=\d+$",                f"num_heads={heads}"),
         (r"^num_blocs=\d+$",                f"num_blocs={blocs}"),
-        (r"^for i in range\(\d+\):$",       f"for i in range({pas_max}):"),
+        (r"^nb_passage=\d+$",              f"nb_passage={pas_max}"),
         (r"^chemin_dossier = .*$",          f"chemin_dossier = r'{dossier}'"),
         (r"^    if i%1500==0:$",            f"    if i%{val_tous}==0:"),
         (r"^for _ in range\(20\):$",        f"for _ in range({echantillons}):"),
     ]
     if apprentissage is not None:
-        # `pas` est le taux d'apprentissage dans transformer.py — à ne pas
-        # confondre avec le nombre de pas, que ce script appelle aussi « pas ».
-        remplacements.append((r"^pas=[\d.e-]+$", f"pas={apprentissage}"))
+        # config_pas porte la forme du schedule, l'échauffement, la décroissance
+        # et le pas de base — à ne pas confondre avec le NOMBRE de pas, que ce
+        # script appelle aussi « pas ».
+        remplacements.append((r"^config_pas=.*$",
+                              f"config_pas=['{schedule}',{amorce},{fin},{apprentissage}]"))
+    if clip is not None:
+        remplacements.append((r"max_norm=[\d.e+]+", f"max_norm={clip}"))
     for motif, remplacement in remplacements:
         src, n = re.subn(motif, remplacement, src, flags=re.MULTILINE)
         if n != 1:
@@ -138,13 +143,15 @@ def lire_pertes(sortie: str):
 
 
 def lancer(nom, dim, blocs, heads, pas_max, racine, val_tous, echantillons, log,
-           limite_s=None, apprentissage=None):
+           limite_s=None, apprentissage=None, schedule="continu",
+           amorce=1000, fin=1000, clip=None):
     dossier = racine / nom
     dossier.mkdir(parents=True, exist_ok=True)
     source = dossier / "source.py"
     source.write_text(
-        source_parametree(dim, heads, blocs, pas_max, str(dossier),
-                          val_tous, echantillons, apprentissage), encoding="utf-8")
+        source_parametree(dim, heads, blocs, pas_max, str(dossier), val_tous,
+                          echantillons, apprentissage, schedule, amorce, fin, clip),
+        encoding="utf-8")
 
     n_par = parametres(dim, blocs)
     log(f"  {nom:16} dim={dim:4} blocs={blocs:3} têtes={heads:2}  "
@@ -207,7 +214,8 @@ def lancer(nom, dim, blocs, heads, pas_max, racine, val_tous, echantillons, log,
         vieux.unlink()
 
     return {"nom": nom, "dim": dim, "blocs": blocs, "heads": heads,
-            "apprentissage": apprentissage,
+            "apprentissage": apprentissage, "schedule": schedule,
+            "amorce": amorce, "fin": fin, "clip": clip,
             "parametres": n_par, "pas": pas_faits, "duree_s": duree,
             "s_par_pas": par_pas, "tokens_vus": LOT * MAX_LEN * pas_faits,
             "train": train, "val": val,
@@ -260,6 +268,13 @@ def main():
     p.add_argument("--dossier", default="",
                    help="dossier de banc existant : les résultats s'y ajoutent")
     p.add_argument("--pas", type=int, default=2000, help="pas par configuration")
+    p.add_argument("--schedule", default="continu",
+                   choices=["continu", "cos", "racine"],
+                   help="forme du pas d'apprentissage")
+    p.add_argument("--amorce", type=int, default=1000, help="pas d'échauffement")
+    p.add_argument("--fin", type=int, default=1000, help="pas de décroissance")
+    p.add_argument("--clip", type=float, default=None,
+                   help="seuil d'écrêtage du gradient (max_norm)")
     p.add_argument("--apprentissage", type=float, default=None,
                    help="pas d'apprentissage imposé à toutes les configs du banc "
                         "de taille (défaut : celui de transformer.py)")
@@ -352,7 +367,8 @@ def main():
             val_config = args.val_tous or 500
             limite = args.minutes * 60
         anciens[nom] = lancer(nom, dim, blocs, heads, pas_config, racine,
-                              val_config, echantillons, log, limite, lr)
+                              val_config, echantillons, log, limite, lr,
+                              args.schedule, args.amorce, args.fin, args.clip)
         ordre = [c[0] for c in catalogue]
         runs = sorted(anciens.values(), key=lambda r: ordre.index(r["nom"]))
         fichier.write_text(json.dumps(
