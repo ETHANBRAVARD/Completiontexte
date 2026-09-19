@@ -24,7 +24,30 @@ num_blocs=6
 head_dim=dim//num_heads
 max_len=384
 lot=32
-pas=0.001
+nb_passage=30000
+pas=[]
+amorce=1000
+fin=1000
+config_pas=['continu',amorce,fin,0.001]
+if config_pas[0] == "continu":
+    for i in range (nb_passage):
+        pas.append(config_pas[3])
+if config_pas[0] == "cos":
+    for i in range(config_pas[1]-1):
+        pas.append(config_pas[3]/(config_pas[1])*(i+1))
+    pas.append(config_pas[3])
+    for i in range(nb_passage-config_pas[1]-config_pas[2]):
+        pas.append(config_pas[3])
+    for i in range(config_pas[2]):
+        pas.append(config_pas[3]*0.5*(1+math.cos(math.pi*i/config_pas[2])))
+if config_pas[0] == "racine":
+    for i in range(config_pas[1]-1):
+        pas.append(config_pas[3]/(config_pas[1])*(i+1))
+    pas.append(config_pas[3])
+    for i in range(nb_passage-config_pas[1]-config_pas[2]):
+        pas.append(config_pas[3])
+    for i in range(config_pas[2]):
+        pas.append(config_pas[3]*1/math.sqrt(i+1))
 date=format(datetime.datetime.now(), '%Y%m%d-%H%M')
 seed=1337
 torch.manual_seed(seed)
@@ -70,7 +93,7 @@ def layernorm(x, g, b):
 losstot=0
 mask=torch.triu(torch.full((max_len,max_len), float('-inf'),device=appareil), diagonal=1)
 pathlib.Path(chemin_dossier).mkdir(parents=True, exist_ok=True)
-for i in range(30000):
+for i in range(nb_passage):
     tireur=tireur_de_lot(tok, lot, max_len)
     input_indices, target_indices=tireur
     x=c[input_indices]
@@ -106,7 +129,7 @@ for i in range(30000):
             v[j]=beta2*v[j]+(1-beta2)*p.grad**2
             m_hat=m[j]/(1-beta1**t)
             v_hat=v[j]/(1-beta2**t)
-            p-=pas*m_hat/(v_hat**0.5+eps)
+            p-=pas[i]*m_hat/(v_hat**0.5+eps)
             p.grad=None
         t+=1
     losstot+=loss.item()
@@ -154,7 +177,7 @@ for i in range(30000):
             'nombre de tokens vu' : lot*max_len*i,
             'i' : i,
             'loss' : losstot_val/10,
-            'pas' : pas,
+            'pas' : config_pas,
             'c': c.detach(), 'pos_emb': pos_emb.detach(),
             'W_q': [p.detach() for p in W_q],
             'W_k': [p.detach() for p in W_k],

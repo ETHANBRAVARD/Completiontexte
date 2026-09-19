@@ -236,7 +236,7 @@ if __name__ == '__main__':
             'perplexite_validation': math.exp(checkpoint['loss']),          
             'parametres'           : parametres,   
             'tokens_vus'           : checkpoint['nombre de tokens vu'],
-            'taux_apprentissage'   : checkpoint['pas'],
+            'config_pas'   : checkpoint['pas'],
             'seed_entrainement'    : checkpoint['seed'],
             'dim'                  : checkpoint['dim'],
             'num_blocs'            : checkpoint['num_blocs'],
