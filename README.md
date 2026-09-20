@@ -343,7 +343,9 @@ Trois conclusions.
 **La divergence était bien un problème de pas, pas de capacité.** `A4` passe de 4,91 à 1,7107,
 `B1` de 4,45 à 1,6541, sans rien changer d'autre que le pas d'apprentissage.
 
-**La courbe en U tient, et son creux était au bon endroit.** Le handicap existait — `A3` gagne
+**La courbe en U tient, et son creux était au bon endroit** — *conclusion révisée le 20/09, voir
+plus bas : une fois l'entraînement stabilisé par l'échauffement et l'écrêtage, le modèle de 42 M
+rattrape celui de 12 M à calcul égal.* Le handicap existait — `A3` gagne
 0,04 en passant à 5·10⁻⁴ — mais pas assez pour dépasser `A2`. À 90 minutes de calcul sur cette
 machine, l'optimum reste autour de **12 M de paramètres**.
 
@@ -468,6 +470,77 @@ En analogique, on peut réduire le bruit d'une matrice en mettant N cellules en 
 les conductances s'ajoutent, les bruits s'ajoutent en quadrature, le rapport gagne √N. Amener `W_2`
 au niveau de `W_q` demanderait donc 27 cellules, et l'ensemble du modèle **14,7 fois la surface**.
 Le gain est en racine, le prix est linéaire.
+
+### Le pas d'apprentissage : échauffement, décroissance, écrêtage
+
+Jusqu'ici le pas était **constant** — aucun échauffement, aucune décroissance, aucun écrêtage du
+gradient. C'est la cause commune de tout ce qui précède : la divergence à `dim=640`, le handicap
+de `dim=512`, et donc le biais de la courbe en U.
+
+Trois formes sont désormais construites au lancement depuis `config_pas ['forme', amorce, fin,
+base]` : échauffement linéaire, plateau, puis décroissance en cosinus ou en `1/√i`. Le checkpoint
+enregistre **les paramètres**, pas la valeur courante — avec le champ `i`, la valeur appliquée à
+n'importe quel pas reste recalculable.
+
+**Choisir le seuil d'écrêtage par la mesure.** Une sonde en zone verte relève la norme globale du
+gradient à chaque pas, seuil neutralisé, pour observer la distribution brute. Sur quatre tailles,
+chacune à son propre pas d'apprentissage :
+
+| config | médiane | p99 | max | évolution de la médiane (par tranche de 200 pas) |
+|---|---|---|---|---|
+| dim 256 | 0,570 | 0,718 | 3,49 | 0,44 · 0,49 · 0,56 · 0,59 · 0,60 · 0,61 |
+| dim 384 | 0,481 | 0,621 | 4,67 | 0,41 · 0,43 · 0,48 · 0,50 · 0,50 · 0,49 |
+| dim 512 | 0,642 | 1,014 | 5,58 | 0,52 · 0,58 · 0,64 · 0,66 · 0,66 · 0,66 |
+| dim 640 | 0,571 | 1,359 | 12,59 | 0,52 · 0,54 · 0,55 · 0,59 · 0,59 · 0,59 |
+
+**La norme ne dépend pas de la taille du modèle.** De 4,3 à 42 M de paramètres, toutes les
+médianes tiennent entre 0,48 et 0,64, et aucune ne dérive au fil des pas. L'attente d'une
+croissance en racine du nombre de paramètres est démentie. Un seuil unique convient donc à toutes
+les tailles : **1,0**, au-dessus du p99 des petites configurations et en dessous des pics.
+
+En régime divergent, en revanche, la norme s'emballe — `dim 640` à 10⁻³ sans échauffement passe de
+0,49 à 8,39 en 1200 pas, avec un maximum à 179. L'écrêtage y devient un frein à la divergence et
+non plus un simple garde-fou.
+
+### Ce que l'échauffement change : la courbe en U révisée
+
+`A4-grand` — 42,3 M de paramètres, 6 000 pas, soit 90 minutes :
+
+| régime | perte val | trajectoire |
+|---|---|---|
+| lr 10⁻³, sans rien | 4,9105 | 4,37 → 4,51 → 4,69 → 4,86 *(diverge)* |
+| lr 5·10⁻⁴, sans rien | 1,7107 | le contournement du 15/09 |
+| **lr 10⁻³ + échauffement + écrêtage** | **1,5199** | |
+
+Le grand modèle n'était pas trop gros, **il était mal démarré**. Et une fois stabilisé, il bat de
+0,19 la solution prudente consistant à baisser le pas.
+
+Surtout, **à budget de calcul égal** — 90 minutes — il atteint 1,5199 là où `A2-actuel`, l'optimum
+apparent, plafonnait à 1,5228. La branche droite de la courbe en U était donc creusée par
+l'instabilité, pas par le budget de tokens : **la taille optimale est probablement supérieure à
+12 M**, et le banc reste à refaire sur cette base.
+
+### Les trois schedules comparés
+
+`384 × 6`, 15 000 pas, écrêtage à 1,0, échauffement de 1 000 pas, décroissance sur les 1 000
+derniers :
+
+| | lr 10⁻³ | lr 2·10⁻³ |
+|---|---|---|
+| constant | 1,5901 | 3,6829 *(diverge)* |
+| **cosinus** | 1,5270 | **1,4912** |
+| racine | 1,5378 | 1,5024 |
+
+- **à 2·10⁻³ le pas constant explose**, tandis que les deux autres tiennent : l'échauffement seul
+  suffit à rendre utilisable un pas deux fois plus grand, et c'est lui qui produit le meilleur
+  modèle de la série ;
+- **le cosinus bat la racine** aux deux pas de base — il descend jusqu'à zéro là où la racine
+  s'arrête à `base/31` ;
+- leurs trajectoires sont **identiques jusqu'au pas 14 000**, ce qui est attendu : elles ne
+  diffèrent que sur les mille derniers. Ce millier vaut pourtant 0,06 face au pas constant.
+
+Cette dernière observation ouvre la question suivante : la décroissance ne couvre ici que **7 %**
+du run, là où les entraînements publiés la font commencer juste après l'échauffement.
 
 ## Structure
 

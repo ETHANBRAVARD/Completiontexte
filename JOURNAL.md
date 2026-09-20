@@ -2077,6 +2077,60 @@ principe qui, pour l'encodeur, conduisait à la conclusion inverse.
 ---
 
 
+#### 19-20/09/2026 — le pas d'apprentissage : échauffement, décroissance, écrêtage
+
+> Log factuel tenu par Claude.
+
+**Ce qui a été écrit** (zone rouge). Trois formes de schedule construites au lancement depuis
+`config_pas ['forme', amorce, fin, base]` — échauffement linéaire, plateau, décroissance en
+cosinus ou en `1/√i`. Écrêtage du gradient par norme globale avant la mise à jour d'Adam. Le
+checkpoint enregistre les paramètres du schedule et non la valeur courante ; `generation.py`
+renomme le champ, qui n'est plus un taux.
+
+Quatre erreurs successives avant que la forme soit juste, toutes trouvées par une sonde de quatre
+valeurs (`pas[0]`, fin d'échauffement, début de décroissance, dernier pas) plutôt qu'en relisant
+le code : un échauffement qui partait dix fois **au-dessus** de la base au lieu d'en dessous ; un
+cosinus dont l'argument avançait de π par pas, donc qui clignotait entre deux valeurs à chaque
+itération ; une décroissance en racine qui **croissait** ; et une division par zéro au premier pas
+de la phase.
+
+**La sonde de gradient** (`scripts/sonde_gradient.py`, zone verte). Elle dépose une copie de
+`transformer.py` où le seuil d'écrêtage est porté à 10³⁰ — un seuil actif tronquerait justement ce
+qu'on veut voir — et recueille la valeur de retour de `clip_grad_norm_`, qui est la norme d'avant
+écrêtage. Elle lit, elle ne calcule rien.
+
+Résultat : **la norme du gradient ne dépend pas de la taille du modèle.** De 4,3 à 42 M de
+paramètres, les médianes tiennent entre 0,48 et 0,64 et ne dérivent pas. J'avais prédit une
+croissance en racine du nombre de paramètres ; c'est faux. Un seuil unique de 1,0 convient à
+toutes les tailles. En régime divergent la norme s'emballe — `dim 640` à 10⁻³ sans échauffement
+passe de 0,49 à 8,39 en 1 200 pas, maximum à 179.
+
+**Les résultats de la nuit**, détaillés dans le README :
+
+- `A4-grand` (42,3 M) à 10⁻³ passe de 4,9105 (divergence) à **1,5199** avec échauffement et
+  écrêtage — et bat de 0,19 le contournement à 5·10⁻⁴. À calcul égal il rattrape `A2-actuel`,
+  donc **la courbe en U du 15/09 est révisée** : son creux était creusé par l'instabilité ;
+- sur `384 × 6`, le **cosinus** gagne aux deux pas de base, et à 2·10⁻³ il produit le meilleur
+  modèle de la série (**1,4912**) là où le pas constant diverge.
+
+**Une correction de ma part.** J'avais annoncé que la norme du gradient croîtrait comme la racine
+du nombre de paramètres, et j'en avais déduit qu'il faudrait un seuil par taille. La mesure dit
+l'inverse. C'est la troisième fois en deux semaines qu'une prédiction chiffrée que j'avance est
+démentie par une mesure qui coûtait quarante minutes.
+
+**Rubrique de compréhension** — à écrire par Ethan. Questions ouvertes :
+
+- pourquoi l'échauffement permet-il un pas **deux fois plus grand** en régime stable, alors qu'il
+  ne concerne que les mille premiers pas sur quinze mille ?
+- le cosinus et la racine ont des trajectoires identiques jusqu'au pas 14 000. Pourquoi, et
+  qu'est-ce que ça dit de ce qui produit réellement l'écart final ?
+- la norme du gradient ne dépend pas de la taille. Qu'est-ce qui, dans la façon dont le gradient
+  est calculé, pouvait laisser penser le contraire — et qu'est-ce qui l'en empêche ?
+- l'écrêtage à 1,0 ne se déclenche presque jamais en régime sain, et sur presque tous les pas en
+  régime divergent. Est-ce un garde-fou ou un mécanisme de contrôle ?
+
+---
+
 ### Étape 8 — Substrat analogique   (branche ouverte le 14/09/2026)
 
 > Ouverte avant la fin de l'étape 5, contrairement à ce que prévoit la feuille de route.
