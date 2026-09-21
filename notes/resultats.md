@@ -523,6 +523,26 @@ de cet écart, une comparaison ne distingue pas un effet du tirage des lots et d
 Ce chiffre n'avait jamais été mesuré. Tout le mois de septembre a comparé des configurations sans
 lui, en traitant des écarts de 0,02 comme des résultats.
 
+**D'où vient cette dispersion ?** Deux sources possibles : ce que la graine contrôle
+(l'initialisation des poids et l'ordre des lots) et ce qu'elle ne contrôle pas (l'ordre des
+réductions en virgule flottante sur GPU, qui dépend de l'ordonnancement des threads CUDA).
+Un run supplémentaire les sépare : même configuration, **même graine 1337**, relancé 36 heures
+après le premier.
+
+    perte finale        1,4912  contre  1,4912
+    109 lignes de log   diff : aucune difference
+    source deposee      identique, au chemin du dossier de sortie pres
+
+**Les deux runs sont strictement identiques.** Le non-déterminisme du GPU ne contribue rien de
+mesurable à cette échelle : la totalité des 0,013 vient de la graine, donc de l'initialisation
+et de l'ordre des lots. Deux conséquences pratiques : les runs sont reproductibles à graine
+fixée sur cette machine — pas besoin de `torch.use_deterministic_algorithms` ni du ralentissement
+qui l'accompagne — et le seul levier pour réduire le bruit est de moyenner sur plusieurs graines.
+
+*Réserve : « identiques » vaut aux quatre décimales du journal. Les poids n'ont pas été comparés
+bit à bit. Mais 109 mesures qui coïncident sur 15 000 pas d'un système qui amplifie n'importe
+quel écart initial suffisent à trancher.*
+
 **Le balayage lui-même**, à graine fixée :
 
 | décroissance sur | part du run | perte val |
@@ -559,3 +579,52 @@ mesure, c'est une lecture de chiffres.** Le protocole apparié du banc de bruit 
 alpha à l'autre) avait déjà ce souci ; il n'avait jamais été porté sur les comparaisons entre
 entraînements, où le coût — un run entier jeté pour ne mesurer que la dispersion — le faisait
 paraître du luxe.
+
+## Le pas d'apprentissage une fois l'entraînement stabilisé
+
+Le 15/09, à `dim=512`, le meilleur pas mesuré était **5·10⁻⁴** : 10⁻³ handicapait déjà cette
+largeur. C'était sans échauffement ni écrêtage. La question reprise le 21/09, avec les deux :
+jusqu'où peut-on monter ?
+
+**Balayage sur 1 500 pas** (`512 × 7 × 8`, cosinus, échauffement 1 000, décroissance 500,
+écrêtage 1,0) :
+
+| lr | 1,5·10⁻³ | 2·10⁻³ | 3·10⁻³ | 4,5·10⁻³ | 6·10⁻³ |
+|---|---|---|---|---|---|
+| perte val | 2,0903 | 2,0379 | 1,9828 | 1,9453 | **1,9340** |
+| gain | — | −0,052 | −0,055 | −0,038 | −0,011 |
+
+Monotone du début à la fin, aucune divergence, mais **la courbe s'aplatit** : le dernier
+doublement ne rapporte plus que 0,011, soit le plancher de bruit.
+
+**Ce que ce balayage ne peut pas dire.** Sur 1 500 pas dont 1 000 d'échauffement et 500 de
+décroissance, le modèle ne passe que 500 pas au pas de base — or les divergences de septembre
+mettaient 1 000 à 3 000 pas à se déclarer. Un aplatissement n'est pas une stabilité.
+
+**Deux sondes longues** — 5 500 pas, échauffement 1 000, **décroissance neutralisée**, donc
+4 500 pas au pas de base, neuf fois plus que précédemment :
+
+| pas | 1 500 | 2 500 | 3 500 | 4 500 | 5 000 | 5 500 |
+|---|---|---|---|---|---|---|
+| lr 6·10⁻³ | 2,1154 | 1,8880 | 1,7836 | 1,6991 | 1,7091 | **1,6810** |
+| lr 4,5·10⁻³ | 2,1172 | 1,8871 | 1,7758 | 1,6904 | 1,6977 | **1,6676** |
+
+**Aucune des deux ne diverge**, et les deux courbes sont indiscernables — écart final 0,0134,
+c'est-à-dire le plancher de bruit, et tous les écarts intermédiaires plus petits encore. Entre
+4,5·10⁻³ et 6·10⁻³ il n'y a plus rien à gagner.
+
+**Le résultat qui compte.** Sur la même forme, au même pas 2 000 :
+
+    15/09, sans echauffement ni ecretage, lr 5e-4   ->  2,12
+    21/09, avec echauffement et ecretage, lr 4,5e-3 ->  1,945
+
+L'échauffement et l'écrêtage font passer le pas utilisable de **5·10⁻⁴ à au moins 6·10⁻³**, un
+facteur **douze**. La loi « le pas maximal stable varie comme l'inverse de la largeur », mesurée
+le 15/09, décrivait donc un entraînement sans garde-fou. Avec eux, le plafond remonte tellement
+qu'on ne le trouve plus — et ce qui limite n'est plus la stabilité mais le rendement décroissant.
+
+**Un artefact de mesure, visible parce que les deux courbes le partagent.** Les deux sondes
+remontent au pas 5 000 puis redescendent, exactement au même endroit. Les lots de validation
+sont tirés par la graine, identique dans les deux runs : les deux mesurent donc sur le *même*
+lot difficile. C'est du bruit de mesure, pas d'entraînement — et ça signifie que le plancher de
+0,013 en contient une part.

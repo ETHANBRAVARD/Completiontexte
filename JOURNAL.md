@@ -2179,6 +2179,22 @@ palier. Les trois métriques d'échantillonnage (mots inexistants, répétition,
 Constat annexe : toute génération s'arrête au premier `\n` (`generation.py:151`), donc aucun texte
 ne dépasse une histoire. La cohérence à long terme n'est pas testable en l'état.
 
+**Décomposition du bruit (21/09, après coup).** Un septième run, même configuration, **même
+graine 1337**, relancé 36 heures après celui du 19-20/09 pour séparer ce que la graine contrôle
+de ce qu'elle ne contrôle pas.
+
+    perte finale        1,4912  contre  1,4912
+    109 lignes de log   diff : aucune difference
+    source deposee      identique au chemin du dossier de sortie pres
+
+Les deux runs sont strictement identiques. Le non-déterminisme du GPU — ordre des threads CUDA,
+donc ordre des réductions flottantes — **ne contribue rien de mesurable**. La totalité des 0,013
+vient de la graine : initialisation des poids et ordre des lots. Les runs sont donc reproductibles
+à graine fixée sur cette machine, et le seul levier pour réduire le bruit est de moyenner sur
+plusieurs graines.
+
+Réserve : identiques aux quatre décimales du journal ; les poids n'ont pas été comparés bit à bit.
+
 **Ce que j'ai compris**
 
 **D'où vient la variation entre deux runs identiques.** Les points d'aléatoire sont liés au
@@ -2225,6 +2241,62 @@ automatiser.
   dérivés de la même graine ?
 - pourquoi les trois métriques d'échantillonnage saturent-elles, alors que le texte continue
   manifestement de changer entre 1,7 et 1,46 ?
+
+#### 21/09/2026 (après-midi) — jusqu'où monter le pas d'apprentissage
+
+**Pourquoi la question se repose.** Le run long à `512 × 7` allait partir à 1,5·10⁻³, valeur
+choisie par prudence : le 15/09 avait mesuré que le meilleur pas à cette largeur était 5·10⁻⁴,
+et la théorie dit que le pas maximal stable varie comme l'inverse de la largeur. Mais ces
+mesures dataient d'avant l'échauffement et l'écrêtage. Une sonde de 14 minutes a montré que
+1,5·10⁻³ tenait largement — donc la prudence était mal calibrée, et six heures allaient tourner
+sous le régime optimal.
+
+**Balayage sur 1 500 pas**, cinq points :
+
+    1,5e-3  2,0903        3e-3    1,9828        6e-3  1,9340
+    2e-3    2,0379        4,5e-3  1,9453
+
+Monotone, sans rupture, mais l'aplatissement est net : le dernier doublement ne rapporte plus
+que 0,011, soit le plancher de bruit.
+
+**Ce que ce balayage ne prouvait pas.** 1 500 pas dont 1 000 d'échauffement et 500 de
+décroissance : 500 pas seulement au pas de base, alors que les divergences du 08/09 mettaient
+1 000 à 3 000 pas à se déclarer. D'où deux sondes de 5 500 pas, décroissance neutralisée
+(`--fin 1`), soit 4 500 pas au pas de base.
+
+    pas        1500    2500    3500    4500    5000    5500
+    lr 6e-3   2,1154  1,8880  1,7836  1,6991  1,7091  1,6810
+    lr 4,5e-3 2,1172  1,8871  1,7758  1,6904  1,6977  1,6676
+
+Aucune divergence, et les deux courbes indiscernables — 0,0134 d'écart final, le plancher de
+bruit, et moins que ça partout ailleurs.
+
+**Le résultat.** Au même pas 2 000, sur la même forme : 2,12 le 15/09 sans garde-fou à 5·10⁻⁴,
+**1,945 aujourd'hui avec échauffement et écrêtage à 4,5·10⁻³**. Le pas utilisable passe de
+5·10⁻⁴ à au moins 6·10⁻³, **un facteur douze**. La loi mesurée le 15/09 décrivait un
+entraînement sans garde-fou ; avec eux, le plafond remonte au point qu'on ne le trouve plus, et
+ce qui limite devient le rendement décroissant, pas la stabilité.
+
+**Un artefact repéré parce que deux courbes le partagent.** Les deux sondes remontent au pas
+5 000 puis redescendent, au même endroit. Les lots de validation sont tirés par la graine,
+identique ici : les deux mesurent sur le même lot difficile. Bruit de mesure, pas d'entraînement
+— et le plancher de 0,013 en contient donc une part.
+
+**Réglage retenu pour le run long** : `512 × 7 × 8`, 40 453 pas (1 époque exacte), cosinus,
+lr 4,5·10⁻³, échauffement 1 000, décroissance sur les 10 000 derniers, écrêtage 1,0. 545 ms/pas
+mesurés, soit 6 h 07.
+
+Réserve : 5 500 pas font 13,6 % du run long. Rien n'interdit qu'une instabilité apparaisse au
+pas 20 000. D'où les checkpoints intermédiaires conservés.
+
+**Questions ouvertes :**
+
+- le 15/09 mesurait un seuil qui variait comme l'inverse de la largeur. Qu'est-ce que
+  l'échauffement change exactement à ce mécanisme, pour que le seuil recule d'un facteur douze ?
+- si la stabilité ne limite plus, qu'est-ce qui limite ? Pourquoi le gain s'annule-t-il entre
+  4,5·10⁻³ et 6·10⁻³ alors que rien ne diverge ?
+- le creux partagé au pas 5 000 vient du lot de validation. Comment mesurer une perte de
+  validation qui ne dépende pas du tirage — et pourquoi ne l'a-t-on pas fait dès le début ?
 
 ---
 

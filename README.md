@@ -78,6 +78,8 @@ illustrer une intuition. Le détail — protocole, chiffres bruts, réserves —
 | Quel schedule ? | Cosinus à 2·10⁻³ → **1,4912** ; le pas constant explose à ce pas de base. Cosinus contre racine : écart sous le bruit, non tranché |
 | Quand démarrer la décroissance ? | **Ça ne change rien de mesurable** : étendue 0,018 pour un bruit de 0,013 |
 | Deux runs identiques, à quel point diffèrent-ils ? | **0,013** de perte de validation. C'est le plancher sous lequel une comparaison ne veut rien dire — et il invalide deux conclusions écrites ici en septembre |
+| Jusqu'où monter le pas d'apprentissage ? | L'échauffement et l'écrêtage le font passer de **5·10⁻⁴ à au moins 6·10⁻³** à `dim=512`, un facteur douze. Aucune divergence sur 4 500 pas au pas de base ; ce qui limite n'est plus la stabilité mais le rendement décroissant |
+| D'où vient ce bruit ? | **Entièrement de la graine.** À graine fixée, deux runs relancés à 36 h d'intervalle donnent des journaux au diff vide : le non-déterminisme du GPU n'y contribue rien de mesurable |
 | Combien de bits les poids portent-ils ? | **8,3 bits** en virgule fixe, **4,0 bits** de mantisse. La précision mixte ne rapporterait que 8 % |
 | Où le modèle est-il fragile ? | Par rôle, pas par volume : `W_2` tolère 1,09 % de bruit, `W_q` 5,63 % — à forme identique |
 

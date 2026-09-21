@@ -61,6 +61,14 @@ PROGRAMMES = {
           '--apprentissage', '0.003', '--schedule', 'cos', '--amorce', '1000',
           '--fin', '1', '--clip', '1.0']],
     ),
+    'sondes-longues': (
+        "Deux sondes de 5500 pas à dim=512, échauffement 1000, SANS décroissance : "
+        "4500 pas passés au pas de base, le régime où l'instabilité se déclare. "
+        "6e-3 d'abord (une rupture y encadre le seuil), puis 4,5e-3. ~1 h 45.",
+        [['--configs', 'A3-moyen', '--pas', '5500', '--val-tous', '500',
+          '--apprentissage', lr, '--schedule', 'cos', '--amorce', '1000',
+          '--fin', '1', '--clip', '1.0'] for lr in ('0.006', '0.0045')],
+    ),
     'run-long': (
         "Le livrable de l'étape 5 : 40453 pas = 1 époque exacte du corpus "
         "complet, 24,4 M paramètres, 20,4 tokens par paramètre. ~6 h.",
