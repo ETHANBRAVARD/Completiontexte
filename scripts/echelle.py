@@ -92,7 +92,7 @@ PARTIES = {
 
 def source_parametree(dim, heads, blocs, pas_max, dossier, val_tous, echantillons,
                       apprentissage=None, schedule="continu", amorce=1000, fin=1000,
-                      clip=None):
+                      clip=None, graine=None):
     """Rend le source de transformer.py avec les hyperparamètres substitués."""
     src = MODELE.read_text(encoding="utf-8")
     remplacements = [
@@ -112,6 +112,10 @@ def source_parametree(dim, heads, blocs, pas_max, dossier, val_tous, echantillon
                               f"config_pas=['{schedule}',{amorce},{fin},{apprentissage}]"))
     if clip is not None:
         remplacements.append((r"max_norm=[\d.e+]+", f"max_norm={clip}"))
+    if graine is not None:
+        # même configuration, graine différente : mesure la dispersion d'un run
+        # à l'autre, donc le plancher de bruit sous lequel un écart ne veut rien dire
+        remplacements.append((r"^seed=\d+$", f"seed={graine}"))
     for motif, remplacement in remplacements:
         src, n = re.subn(motif, remplacement, src, flags=re.MULTILINE)
         if n != 1:
@@ -144,13 +148,14 @@ def lire_pertes(sortie: str):
 
 def lancer(nom, dim, blocs, heads, pas_max, racine, val_tous, echantillons, log,
            limite_s=None, apprentissage=None, schedule="continu",
-           amorce=1000, fin=1000, clip=None):
+           amorce=1000, fin=1000, clip=None, graine=None, garder_tout=False):
     dossier = racine / nom
     dossier.mkdir(parents=True, exist_ok=True)
     source = dossier / "source.py"
     source.write_text(
         source_parametree(dim, heads, blocs, pas_max, str(dossier), val_tous,
-                          echantillons, apprentissage, schedule, amorce, fin, clip),
+                          echantillons, apprentissage, schedule, amorce, fin, clip,
+                          graine),
         encoding="utf-8")
 
     n_par = parametres(dim, blocs)
@@ -205,13 +210,15 @@ def lancer(nom, dim, blocs, heads, pas_max, racine, val_tous, echantillons, log,
         + (f"  val {val[-1][1]:.4f}" if val else "  (aucune mesure de validation)"))
 
     # On ne garde que le dernier checkpoint : les intermédiaires pèsent lourd et
-    # ne servent à rien une fois la courbe tracée.
+    # ne servent à rien une fois la courbe tracée. Exception : --garder-tout,
+    # pour un run définitif dont on voudra relire l'échelle de qualité du texte.
     # Tri numérique : "sauvegarde_935" passe après "sauvegarde_1496" en ordre
     # lexicographique, ce qui ferait supprimer le checkpoint final.
-    points = sorted(dossier.glob("*-sauvegarde_*.pt"),
-                    key=lambda f: int(f.stem.rsplit("_", 1)[1]))
-    for vieux in points[:-1]:
-        vieux.unlink()
+    if not garder_tout:
+        points = sorted(dossier.glob("*-sauvegarde_*.pt"),
+                        key=lambda f: int(f.stem.rsplit("_", 1)[1]))
+        for vieux in points[:-1]:
+            vieux.unlink()
 
     return {"nom": nom, "dim": dim, "blocs": blocs, "heads": heads,
             "apprentissage": apprentissage, "schedule": schedule,
@@ -275,6 +282,13 @@ def main():
     p.add_argument("--fin", type=int, default=1000, help="pas de décroissance")
     p.add_argument("--clip", type=float, default=None,
                    help="seuil d'écrêtage du gradient (max_norm)")
+    p.add_argument("--garder-tout", action="store_true",
+                   help="conserver tous les checkpoints intermédiaires (défaut : "
+                        "seul le dernier). À mettre pour un run définitif.")
+    p.add_argument("--graine", type=int, default=None,
+                   help="graine du run (défaut : celle de transformer.py). Deux runs "
+                        "identiques à graines différentes donnent le plancher de bruit : "
+                        "en dessous de cet écart, une comparaison ne veut rien dire.")
     p.add_argument("--apprentissage", type=float, default=None,
                    help="pas d'apprentissage imposé à toutes les configs du banc "
                         "de taille (défaut : celui de transformer.py)")
@@ -368,7 +382,7 @@ def main():
             limite = args.minutes * 60
         anciens[nom] = lancer(nom, dim, blocs, heads, pas_config, racine,
                               val_config, echantillons, log, limite, lr,
-                              args.schedule, args.amorce, args.fin, args.clip)
+                              args.schedule, args.amorce, args.fin, args.clip, args.graine, args.garder_tout)
         ordre = [c[0] for c in catalogue]
         runs = sorted(anciens.values(), key=lambda r: ordre.index(r["nom"]))
         fichier.write_text(json.dumps(
