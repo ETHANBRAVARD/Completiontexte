@@ -2129,6 +2129,103 @@ démentie par une mesure qui coûtait quarante minutes.
 - l'écrêtage à 1,0 ne se déclenche presque jamais en régime sain, et sur presque tous les pas en
   régime divergent. Est-ce un garde-fou ou un mécanisme de contrôle ?
 
+#### 20-21/09/2026 — le plancher de bruit, et deux conclusions retirées
+
+**Ce qui a tourné.** Six runs de 15 000 pas, 7 h 40, `384 × 6`, tout gelé aux meilleures valeurs
+du 19-20/09 — cosinus, lr 2·10⁻³, écrêtage 1,0, échauffement 1 000. Seule variable : `--fin`,
+le nombre de pas sur lesquels s'étale la décroissance. Deux des six runs ne faisaient varier
+que la graine, pour mesurer la dispersion entre runs identiques.
+
+**Le résultat principal n'est pas celui que la nuit cherchait.**
+
+    graine 1337 / 4242, décroissance sur 1 000 pas   : 1,4912 / 1,4792   ecart 0,0120
+    graine 1337 / 4242, décroissance sur 14 000 pas  : 1,4971 / 1,4820   ecart 0,0151
+
+Deux entraînements identiques diffèrent de **0,013**. Ce chiffre n'avait jamais été mesuré dans
+ce projet.
+
+**Le balayage** (graine fixée) : 1,4912 · 1,4787 · 1,4789 · 1,4867 · 1,4971 pour une décroissance
+couvrant 7, 25, 47, 70 et 93 % du run. Étendue 0,0184, bruit 0,0135, rapport 1,4. La forme en
+creux vers 25-47 % n'est pas séparable du hasard sur un run par point. Réponse retenue : **le
+moment où commence la décroissance n'est pas un paramètre critique.**
+
+**Deux conclusions retirées**, relues à l'aune du plancher :
+
+    le cosinus bat la racine                         ecart 0,011  -> sous le bruit
+    A4 (42 M) bat A2 (12 M) a calcul egal            ecart 0,003  -> egalite
+    la largeur bat la profondeur a calcul egal       ecart 0,021  -> fragile (1,5x le bruit)
+
+Celles qui tiennent : cosinus contre pas constant (0,099), l'échauffement sauvant `dim=640`
+(3,39), le passage de 10⁻³ à 2·10⁻³ (0,036).
+
+`README.md` et `notes/resultats.md` corrigés en conséquence. La révision du 20/09 sur la courbe
+en U passe de « le 42 M rattrape et dépasse le 12 M » à « il l'égale » — ce qui suffit encore à
+montrer que la branche droite était creusée par l'instabilité, mais ne permet plus d'affirmer
+que l'optimum est au-dessus de 12 M.
+
+**Erreur de ma part, consignée.** Le banc supprimait les checkpoints intermédiaires
+(`echelle.py`, nettoyage en fin de run) : mesure utile pour des bancs, mais elle aurait rendu
+impossible l'échelle loss/texte sur le run définitif. Ajout de `--garder-tout`. Ajout aussi de
+`--graine`, sans lequel la mesure ci-dessus n'était pas faisable — le banc n'avait aucun moyen
+de faire varier la graine, puisqu'elle est en dur dans `transformer.py`.
+
+**Mesure annexe : la loss prédit-elle la qualité du texte ?** `scripts/echelle_texte.py` parcourt
+les 20 checkpoints du run du 16/08, génère les mêmes 15 amorces avec les mêmes graines à chaque
+palier. Les trois métriques d'échantillonnage (mots inexistants, répétition, redite) **saturent
+à zéro sous 1,7** et ne corrèlent plus avec la loss. À la lecture, le progrès est net de 2,32 à
+1,72 et illisible ensuite. Au meilleur palier, l'incohérence sémantique est intacte :
+`"I am scared," she said, "It's okay. You can trust me to be brave."`
+
+Constat annexe : toute génération s'arrête au premier `\n` (`generation.py:151`), donc aucun texte
+ne dépasse une histoire. La cohérence à long terme n'est pas testable en l'état.
+
+**Ce que j'ai compris**
+
+**D'où vient la variation entre deux runs identiques.** Les points d'aléatoire sont liés au
+non-déterminisme du GPU, donc l'ordre d'exécution des threads et l'ordre des arrondis, ce
+qui donne des résultats légèrement différents ; ainsi qu'à l'initialisation des poids, liée
+à torch, qui est donc aléatoire et donne des départs différents, ce qui peut donner des
+minimums locaux différents aussi.
+
+**Pourquoi A4 n'est pas meilleur que A2.** A4 donne un meilleur résultat très léger par
+rapport à A2 en termes de loss : l'écart est de 0,003, ce qui est très en dessous du
+plancher de bruit. On ne peut donc clairement pas conclure que A4 est meilleur. On a même
+plutôt une égalité.
+
+**Ce qu'il faudrait pour trancher le creux à 25 %.** Le balayage de la décroissance a une
+étendue de 0,018, alors que le bruit est de 0,013. Il faudrait, au lieu de lancer sur une
+seule graine, lancer entre 5 et 10 runs par configuration : le coût serait d'environ deux
+jours de calcul. À voir si j'arrive à régler le problème du PC fixe — dans ce cas-là, ce
+sera quelque chose qui sera lancé en parallèle de l'étape 7.
+
+**Pourquoi le texte ne semble plus s'améliorer entre 1,72 et 1,46.** Première possibilité :
+les améliorations se jouent sur une sorte de mémoire, une continuité des histoires, ou une
+cohérence logique qui n'est pas visible pour aussi peu de caractères ni sur aussi peu
+d'échantillons. On continue donc à entraîner pour améliorer le modèle sans pour autant voir
+sur nos échelles de vraies variations. On va commencer à faire des tests sur des textes plus
+longs pour observer une cohérence sur le long terme. Deuxième possibilité : la loss peut
+aussi diminuer sans pour autant améliorer le texte. Elle peut juste mieux prédire les tokens
+les plus fréquents, les plus faciles, et donc apprendre des tendances qui n'amélioreraient
+pas le texte.
+
+**Ce que les trois métriques mesurent, et ce qu'elles ne voient pas.** Elles servent surtout
+à identifier la cohérence absolue du texte, c'est-à-dire est-ce qu'il se fait piéger, est-ce
+qu'il tombe dans des erreurs grossières. Passé 1,7, toutes ces erreurs grossières
+disparaissent. Donc pour détecter le reste, il faudrait lire les textes, ou trouver un moyen
+d'observer la cohérence et l'intérêt des textes — ce qui est beaucoup plus compliqué à
+automatiser.
+
+**Questions ouvertes :**
+
+- combien de runs par configuration faudrait-il pour trancher un écart de 0,018 ? Et qu'est-ce
+  que ça change au coût d'un banc ?
+- le plancher de bruit de 0,013 a été mesuré à `384 × 6` sur 15 000 pas. Dépend-il de la taille
+  du modèle, de la durée du run, ou est-il constant ?
+- d'où vient cette dispersion, puisque le corpus, l'ordre des lots et l'initialisation sont tous
+  dérivés de la même graine ?
+- pourquoi les trois métriques d'échantillonnage saturent-elles, alors que le texte continue
+  manifestement de changer entre 1,7 et 1,46 ?
+
 ---
 
 ### Étape 8 — Substrat analogique   (branche ouverte le 14/09/2026)

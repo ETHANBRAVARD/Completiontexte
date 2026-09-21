@@ -45,6 +45,22 @@ PROGRAMMES = {
           '--apprentissage', '0.0015', '--schedule', 'cos', '--amorce', '1000',
           '--fin', '500', '--clip', '1.0']],
     ),
+    'sondes-seuil': (
+        "Encadrer le seuil d'instabilité à dim=512 : 4,5e-3 puis 6e-3, 1500 pas. "
+        "On cherche où ça casse pour se placer en dessous avec une marge, comme le "
+        "15/09 pour la largeur. ~28 min.",
+        [['--configs', 'A3-moyen', '--pas', '1500', '--val-tous', '250',
+          '--apprentissage', lr, '--schedule', 'cos', '--amorce', '1000',
+          '--fin', '500', '--clip', '1.0'] for lr in ('0.0045', '0.006')],
+    ),
+    'sonde-longue': (
+        "4000 pas à 3e-3, échauffement 1000, SANS décroissance : le modèle passe "
+        "3000 pas au pas de base, le régime où l'instabilité se déclare. Les sondes "
+        "de 1500 pas n'y passent presque pas de temps. ~37 min.",
+        [['--configs', 'A3-moyen', '--pas', '4000', '--val-tous', '500',
+          '--apprentissage', '0.003', '--schedule', 'cos', '--amorce', '1000',
+          '--fin', '1', '--clip', '1.0']],
+    ),
     'run-long': (
         "Le livrable de l'étape 5 : 40453 pas = 1 époque exacte du corpus "
         "complet, 24,4 M paramètres, 20,4 tokens par paramètre. ~6 h.",
@@ -77,6 +93,9 @@ def main():
     ap.add_argument('--lister', action='store_true')
     ap.add_argument('--go', action='store_true',
                     help="exiger explicitement les programmes de plus d'une heure")
+    ap.add_argument('--lr', default=None,
+                    help="remplace le pas d'apprentissage du programme "
+                         "(ex. relancer sonde-longue au pas retenu par sondes-seuil)")
     ap.add_argument('--pause', type=int, default=65,
                     help='secondes entre deux runs, pour libérer la VRAM')
     a = ap.parse_args()
@@ -94,10 +113,18 @@ def main():
                  f"connus : {', '.join(PROGRAMMES)}")
 
     desc, etapes = PROGRAMMES[a.programme]
-    longs = a.programme in ('nuit6', 'run-long')
+    # Tout ce qui occupe le GPU exige --go : sans ça, un simple essai de la CLI
+    # lance un entraînement et entre en collision avec le run en cours.
+    longs = a.programme != 'etalon'
     if longs and not a.go:
         sys.exit(f"{a.programme} : {desc}\n\n"
                  f"Programme long. Relancer avec --go pour le lancer vraiment.")
+
+    if a.lr is not None:
+        etapes = [list(e) for e in etapes]
+        for e in etapes:
+            if '--apprentissage' in e:
+                e[e.index('--apprentissage') + 1] = a.lr
 
     horodatage = datetime.now().strftime('%Y%m%d-%H%M')
     journal = RACINE / 'runs' / f'{a.programme}-{horodatage}.log'

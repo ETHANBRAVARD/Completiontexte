@@ -298,7 +298,8 @@ Trois conclusions.
 
 **La courbe en U tient, et son creux était au bon endroit** — *conclusion révisée le 20/09, voir
 plus bas : une fois l'entraînement stabilisé par l'échauffement et l'écrêtage, le modèle de 42 M
-rattrape celui de 12 M à calcul égal.* Le handicap existait — `A3` gagne
+égale celui de 12 M à calcul égal — égale, et non dépasse : l'écart de 0,003 est vingt fois
+plus petit que le plancher de bruit mesuré le 21/09.* Le handicap existait — `A3` gagne
 0,04 en passant à 5·10⁻⁴ — mais pas assez pour dépasser `A2`. À 90 minutes de calcul sur cette
 machine, l'optimum reste autour de **12 M de paramètres**.
 
@@ -317,7 +318,9 @@ taille, et que le 08/09 laissait sans réponse faute d'un run stable :
 | **B1-large** | 640 × 5 | 27,52 M | 8 750 | 617 | **1,6541** |
 | B2-profond | 448 × 11 | 28,58 M | 7 250 | 745 | 1,6752 |
 
-**À calcul égal, la largeur l'emporte** — de 0,021, avec 4 % de paramètres en moins. Le mécanisme
+**À calcul égal, la largeur l'emporte** — de 0,021, avec 4 % de paramètres en moins. *Réserve
+ajoutée le 21/09 : 0,021, c'est à peine plus d'une fois et demie le plancher de bruit. La
+conclusion tient par son mécanisme, pas par la marge.* Le mécanisme
 est dans la colonne des pas : le modèle profond coûte 745 ms contre 617, donc en 90 minutes il
 fait 1 500 pas de moins. Ses onze blocs s'exécutent en série, là où la largeur se parallélise.
 
@@ -466,12 +469,15 @@ non plus un simple garde-fou.
 | **lr 10⁻³ + échauffement + écrêtage** | **1,5199** | |
 
 Le grand modèle n'était pas trop gros, **il était mal démarré**. Et une fois stabilisé, il bat de
-0,19 la solution prudente consistant à baisser le pas.
+0,19 la solution prudente consistant à baisser le pas — un écart réel, quatorze fois le bruit.
 
-Surtout, **à budget de calcul égal** — 90 minutes — il atteint 1,5199 là où `A2-actuel`, l'optimum
-apparent, plafonnait à 1,5228. La branche droite de la courbe en U était donc creusée par
-l'instabilité, pas par le budget de tokens : **la taille optimale est probablement supérieure à
-12 M**, et le banc reste à refaire sur cette base.
+**À budget de calcul égal** — 90 minutes — il atteint 1,5199 là où `A2-actuel`, l'optimum apparent,
+plafonnait à 1,5228. *Correction du 21/09 : cet écart de 0,003 est très en dessous du plancher de
+bruit de 0,013 mesuré depuis. Il ne dit pas que le grand modèle est meilleur, il dit qu'il est
+**à égalité**.* Ce qui suffit à la conclusion qui compte : la branche droite de la courbe en U
+était creusée par l'instabilité et non par le budget de tokens, puisqu'un modèle 3,4 fois plus
+gros fait désormais aussi bien dans le même temps. Mais **rien n'établit que l'optimum soit
+au-dessus de 12 M** — il faudrait pour ça un écart que la mesure n'a pas produit.
 
 ## Les trois schedules comparés
 
@@ -487,11 +493,69 @@ derniers :
 - **à 2·10⁻³ le pas constant explose**, tandis que les deux autres tiennent : l'échauffement seul
   suffit à rendre utilisable un pas deux fois plus grand, et c'est lui qui produit le meilleur
   modèle de la série ;
-- **le cosinus bat la racine** aux deux pas de base — il descend jusqu'à zéro là où la racine
-  s'arrête à `base/31` ;
+- **le cosinus devance la racine** aux deux pas de base, de 0,011 et 0,013 — mais *correction du
+  21/09 : c'est exactement le plancher de bruit. L'écart n'établit rien.* L'argument théorique
+  reste (le cosinus descend jusqu'à zéro là où la racine s'arrête à `base/31`), la mesure non ;
 - leurs trajectoires sont **identiques jusqu'au pas 14 000**, ce qui est attendu : elles ne
   diffèrent que sur les mille derniers. Ce millier vaut pourtant 0,06 face au pas constant.
 
 Cette dernière observation ouvre la question suivante : la décroissance ne couvre ici que **7 %**
 du run, là où les entraînements publiés la font commencer juste après l'échauffement.
 
+
+## Le plancher de bruit, et ce qu'il invalide
+
+Six runs de 15 000 pas, tout gelé aux meilleures valeurs connues — `384 × 6`, cosinus,
+lr 2·10⁻³, écrêtage 1,0, échauffement 1 000 — et une seule chose qui varie : le nombre de pas
+sur lesquels s'étale la décroissance.
+
+**La mesure qui commande toutes les autres.** Deux paires de runs strictement identiques, à la
+graine près :
+
+| configuration | graine 1337 | graine 4242 | écart |
+|---|---|---|---|
+| décroissance sur 1 000 pas | 1,4912 | 1,4792 | **0,0120** |
+| décroissance sur 14 000 pas | 1,4971 | 1,4820 | **0,0151** |
+
+**Deux entraînements identiques diffèrent de 0,013 en moyenne.** C'est le plancher : en dessous
+de cet écart, une comparaison ne distingue pas un effet du tirage des lots et de l'initialisation.
+
+Ce chiffre n'avait jamais été mesuré. Tout le mois de septembre a comparé des configurations sans
+lui, en traitant des écarts de 0,02 comme des résultats.
+
+**Le balayage lui-même**, à graine fixée :
+
+| décroissance sur | part du run | perte val |
+|---|---|---|
+| 1 000 pas | 7 % | 1,4912 |
+| 3 750 | 25 % | **1,4787** |
+| 7 000 | 47 % | **1,4789** |
+| 10 500 | 70 % | 1,4867 |
+| 14 000 | 93 % | 1,4971 |
+
+L'étendue vaut **0,0184** pour un bruit de **0,0135**. Le rapport est de 1,4 : la tendance
+apparente — un creux vers 25-47 %, le pire quand la décroissance démarre juste après
+l'échauffement — **n'est pas séparable du hasard** sur un run par point. Il en faudrait trois ou
+quatre par configuration, soit une nuit par point.
+
+Conclusion pratique : **le moment où commence la décroissance n'est pas un paramètre critique.**
+Ce qui est une réponse utile, puisqu'elle dispense d'y revenir.
+
+**Ce que le plancher invalide, rétroactivement.** Les écarts déjà publiés, relus à cette aune :
+
+| affirmation | écart | verdict |
+|---|---|---|
+| le cosinus bat le pas constant | 0,099 | **tient** — sept fois le bruit |
+| l'échauffement sauve `dim=640` (4,91 → 1,52) | 3,39 | **tient** massivement |
+| passer de 10⁻³ à 2·10⁻³ à `384 × 6` | 0,036 | **tient** — presque trois fois le bruit |
+| la largeur bat la profondeur à calcul égal | 0,021 | **fragile** — 1,5 fois le bruit |
+| le cosinus bat la racine | 0,011 | **sous le bruit** — non établi |
+| `A4` (42 M) bat `A2` (12 M) à calcul égal | 0,003 | **sous le bruit** — c'est une égalité |
+
+Les deux dernières lignes étaient écrites ici comme des résultats. Elles ne le sont pas.
+
+La leçon de méthode dépasse ce banc : **une comparaison sans plancher de bruit n'est pas une
+mesure, c'est une lecture de chiffres.** Le protocole apparié du banc de bruit (mêmes lots d'un
+alpha à l'autre) avait déjà ce souci ; il n'avait jamais été porté sur les comparaisons entre
+entraînements, où le coût — un run entier jeté pour ne mesurer que la dispersion — le faisait
+paraître du luxe.

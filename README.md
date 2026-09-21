@@ -74,13 +74,17 @@ illustrer une intuition. Le détail — protocole, chiffres bruts, réserves —
 | Était-ce la capacité ou le pas ? | Le pas : `A4` (42 M) passe de **4,91** à **1,71** en baissant `lr` de 10⁻³ à 5·10⁻⁴ |
 | Largeur ou profondeur ? | À pas égal : **égalité** (écarts de 0,007). À calcul égal la largeur gagne, parce qu'elle coûte 617 ms/pas contre 745 |
 | Où écrêter le gradient ? | Sa norme **ne dépend pas de la taille** (médianes 0,48–0,64 de 4 à 42 M) → seuil unique **1,0** |
-| Ce que l'échauffement change | `A4` : 4,91 → 1,71 → **1,5199**, soit mieux que l'optimum apparent `A2` (1,5228) **à calcul égal** — la courbe en U était creusée par l'instabilité |
-| Quel schedule ? | Cosinus à 2·10⁻³ → **1,4912** ; le pas constant explose à ce pas de base |
+| Ce que l'échauffement change | `A4` : 4,91 → 1,71 → **1,5199** — à calcul égal il **égale** l'optimum apparent `A2` (1,5228). La branche droite de la courbe en U était creusée par l'instabilité, pas par le budget de tokens |
+| Quel schedule ? | Cosinus à 2·10⁻³ → **1,4912** ; le pas constant explose à ce pas de base. Cosinus contre racine : écart sous le bruit, non tranché |
+| Quand démarrer la décroissance ? | **Ça ne change rien de mesurable** : étendue 0,018 pour un bruit de 0,013 |
+| Deux runs identiques, à quel point diffèrent-ils ? | **0,013** de perte de validation. C'est le plancher sous lequel une comparaison ne veut rien dire — et il invalide deux conclusions écrites ici en septembre |
 | Combien de bits les poids portent-ils ? | **8,3 bits** en virgule fixe, **4,0 bits** de mantisse. La précision mixte ne rapporterait que 8 % |
 | Où le modèle est-il fragile ? | Par rôle, pas par volume : `W_2` tolère 1,09 % de bruit, `W_q` 5,63 % — à forme identique |
 
-Question ouverte à ce jour : la décroissance du pas ne couvre que **7 %** du run, là où
-les entraînements publiés la font commencer juste après l'échauffement.
+Le résultat le plus utile n'est pas une ligne du tableau, c'est son étalon : **deux entraînements
+strictement identiques, à la graine près, diffèrent de 0,013**. Tout le mois de septembre a
+comparé des configurations sans ce chiffre, en traitant des écarts de 0,02 comme des résultats.
+Deux d'entre eux n'en étaient pas.
 
 ## Structure
 
