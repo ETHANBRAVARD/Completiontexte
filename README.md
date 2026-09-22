@@ -54,12 +54,14 @@ logiciel — mes poids survivent-ils à 6 bits bruités ?
 
 ## Résultats en un coup d'œil
 
-État actuel : **transformer 12,4 M de paramètres**, 6 blocs pre-norm, contexte 384,
-entraîné sur un corpus TinyStories de 2,2 Go tokenisé maison — perte de validation
-**1,4635**, perplexité **4,32**.
+État actuel : **transformer 24,4 M de paramètres**, 7 blocs pre-norm, contexte 384,
+entraîné sur un corpus TinyStories de 2,2 Go tokenisé maison — 491 M tokens traversés,
+20,4 par paramètre, soit **le volume d'une époque**. Perte de validation
+**1,2382**, perplexité **3,45**. Six heures sur une RTX 5050 portable.
 
-> Once upon a time, there was a little boy named Tim. He loved to play with his toys.
-> One day, he found a big box in the attic. It was dark and full of old things.
+> Tim and his dog were playing in the garden when they found a big, shiny rock. They were
+> very happy and started to dig with the rock in their hands. They wanted to show the rock
+> to Tim's mom and dad, so they ran inside to show them.
 
 Chaque ligne ci-dessous est une expérience menée pour trancher une question, jamais pour
 illustrer une intuition. Le détail — protocole, chiffres bruts, réserves — est dans
@@ -76,6 +78,7 @@ illustrer une intuition. Le détail — protocole, chiffres bruts, réserves —
 | Où écrêter le gradient ? | Sa norme **ne dépend pas de la taille** (médianes 0,48–0,64 de 4 à 42 M) → seuil unique **1,0** |
 | Ce que l'échauffement change | `A4` : 4,91 → 1,71 → **1,5199** — à calcul égal il **égale** l'optimum apparent `A2` (1,5228). La branche droite de la courbe en U était creusée par l'instabilité, pas par le budget de tokens |
 | Quel schedule ? | Cosinus à 2·10⁻³ → **1,4912** ; le pas constant explose à ce pas de base. Cosinus contre racine : écart sous le bruit, non tranché |
+| Que donne l'étape 5 menée au bout ? | 24,4 M de paramètres, le volume d'une époque du corpus complet, 6 h : **1,2382** contre 1,4635 pour l'ancien record. Un écart de 0,225, soit **dix-sept fois le plancher de bruit** |
 | Quand démarrer la décroissance ? | **Ça ne change rien de mesurable** : étendue 0,018 pour un bruit de 0,013 |
 | Deux runs identiques, à quel point diffèrent-ils ? | **0,013** de perte de validation. C'est le plancher sous lequel une comparaison ne veut rien dire — et il invalide deux conclusions écrites ici en septembre |
 | Jusqu'où monter le pas d'apprentissage ? | L'échauffement et l'écrêtage le font passer de **5·10⁻⁴ à au moins 6·10⁻³** à `dim=512`, un facteur douze. Aucune divergence sur 4 500 pas au pas de base ; ce qui limite n'est plus la stabilité mais le rendement décroissant |

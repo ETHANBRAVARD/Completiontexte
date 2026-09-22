@@ -73,8 +73,8 @@ PROGRAMMES = {
         "Le livrable de l'étape 5 : 40453 pas = 1 époque exacte du corpus "
         "complet, 24,4 M paramètres, 20,4 tokens par paramètre. ~6 h.",
         [['--configs', 'A3-moyen', '--pas', '40453', '--val-tous', '2000',
-          '--apprentissage', '0.0015', '--schedule', 'cos', '--amorce', '1000',
-          '--fin', '14000', '--clip', '1.0', '--garder-tout']],
+          '--apprentissage', '0.0045', '--schedule', 'cos', '--amorce', '1000',
+          '--fin', '10000', '--clip', '1.0', '--garder-tout']],
     ),
 }
 

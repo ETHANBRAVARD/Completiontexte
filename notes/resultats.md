@@ -628,3 +628,78 @@ remontent au pas 5 000 puis redescendent, exactement au même endroit. Les lots 
 sont tirés par la graine, identique dans les deux runs : les deux mesurent donc sur le *même*
 lot difficile. C'est du bruit de mesure, pas d'entraînement — et ça signifie que le plancher de
 0,013 en contient une part.
+
+## Le run long : l'étape 5 menée au bout
+
+Le livrable qui manquait. Tout ce qui avait tourné jusqu'ici était soit sur l'ancien corpus de
+500 Mo (16/08), soit des bancs de 78 à 90 minutes servant à régler les hyperparamètres d'un
+entraînement qu'on n'avait pas encore fait.
+
+    A3-moyen   512 x 7 x 8   24,38 M parametres
+    40 453 pas, 491 M tokens traverses = le VOLUME d'une epoque du corpus
+    20,4 tokens par parametre
+    cos, lr 4,5e-3, echauffement 1000, decroissance sur les 10 000 derniers, ecretage 1,0
+    5 h 58 sur RTX 5050 portable, 534 ms/pas
+
+**Perte de validation : 1,2382. Perplexité : 3,45.**
+
+Contre **1,4635**, l'ancien record (12,4 M, 30 000 pas, 16/08) : un gain de **0,225**, soit
+**dix-sept fois le plancher de bruit**. Pour une fois, aucune précaution de lecture n'est
+nécessaire.
+
+| pas | 2 000 | 6 000 | 10 000 | 14 000 | 20 000 | 26 000 | 32 000 | 36 000 | 40 000 |
+|---|---|---|---|---|---|---|---|---|---|
+| val | 1,9530 | 1,6381 | 1,5763 | 1,4810 | 1,4060 | 1,4122 | 1,3296 | 1,3017 | **1,2382** |
+
+**Aucun plateau à la fin.** Les 4 000 derniers pas valent 0,064, l'un des plus gros gains du
+run — c'est la décroissance du cosinus qui agit sur le dernier quart. Deux remontées, à 26 000
+et 34 000, toutes deux sous le bruit de mesure de la validation. Le run d'août, lui, plafonnait
+sur ses 1 000 derniers pas.
+
+Ce qui a changé depuis août, dans l'ordre d'importance : le corpus complet au lieu de 500 Mo,
+un pas d'apprentissage quatre fois et demie plus grand rendu utilisable par l'échauffement et
+l'écrêtage, et une taille de modèle doublée à budget de tokens correspondant.
+
+### Ce que la loss vaut comme mesure, revisité sur une plage double
+
+Vingt checkpoints, de 1,95 à 1,24 — là où le run du 16/08 n'offrait que 2,32 à 1,46. Mêmes
+15 amorces, mêmes graines à chaque palier.
+
+**Les trois métriques d'échantillonnage restent plates sur toute la plage**, comme la fois
+précédente : mots inexistants entre 0 et 0,5 %, répétition entre 0 et 1,5 %, redite entre 0 et
+1 %, sans aucune tendance. La conclusion se confirme sur un intervalle deux fois plus large —
+elles ne mesurent rien de ce qui change en dessous de 1,7.
+
+**Mais à la lecture, cette fois, le progrès est visible.** Sur la même amorce et la même graine :
+
+    val 1,4810   "I am scared," she said, "Don't worry, Max. We can be friends!"
+    val 1,3631   "I am scared," she said, "It's okay, Tim. We can be brave together."
+    val 1,2382   "I am scared," she said, "What do we do?"
+
+Aux deux premiers paliers, le modèle **confond qui parle** : le personnage effrayé prononce la
+réplique rassurante. C'est le défaut qui subsistait à 1,4635 dans le run d'août et qu'aucune
+métrique ne détectait. À 1,2382 il a disparu — la réplique est cohérente avec l'état du
+personnage qui la prononce.
+
+Cela tranche entre les deux hypothèses posées le 21/09 sur l'absence de progrès visible entre
+1,72 et 1,46 : **le progrès était réel et hors de portée de l'observation**, et non pas confiné
+à des tokens sans effet sur le texte. Il fallait descendre plus bas pour le rendre lisible.
+
+Réserve : trois exemples ne font pas une mesure. Le protocole qui trancherait — une lecture en
+aveugle où l'on classe des paires sans savoir de quel palier elles viennent — reste à faire.
+
+**Et la limite reste la même** : 109 caractères en moyenne par texte, parce que la génération
+s'arrête au premier saut de ligne (`generation.py:151`). La cohérence à longue portée n'est
+toujours pas testable.
+
+**Une précision sur « une époque ».** `tireur_de_lot` tire des positions de départ au hasard
+dans le corpus (`random.randint`), indépendamment, à chaque pas. Ce n'est donc pas un balayage :
+c'est un échantillonnage **avec remise**. Sur 40 453 pas, le volume consommé égale bien la
+taille du corpus — 491 M tokens pour 497 M disponibles — mais la couverture réelle vaut
+`1 − e⁻¹ ≈ 63 %`. Environ **37 % du corpus n'a jamais été vu**, et une part du reste l'a été
+plusieurs fois.
+
+Conséquence : le ratio de 20,4 tokens par paramètre est un ratio de *volume*, pas de matière
+distincte. Le modèle a vu l'équivalent d'une époque, pas une époque. Et il reste un tiers du
+corpus inexploité — ce qui est une réponse partielle à la question « faut-il agrandir le modèle
+ou repasser sur les tokens ».

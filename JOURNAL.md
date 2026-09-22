@@ -2197,11 +2197,27 @@ Réserve : identiques aux quatre décimales du journal ; les poids n'ont pas ét
 
 **Ce que j'ai compris**
 
-**D'où vient la variation entre deux runs identiques.** Les points d'aléatoire sont liés au
-non-déterminisme du GPU, donc l'ordre d'exécution des threads et l'ordre des arrondis, ce
-qui donne des résultats légèrement différents ; ainsi qu'à l'initialisation des poids, liée
-à torch, qui est donc aléatoire et donne des départs différents, ce qui peut donner des
-minimums locaux différents aussi.
+**D'où vient la variation entre deux runs identiques.** Tout l'écart tient à la graine, par
+deux canaux.
+
+Le premier est l'initialisation des poids, tirée par torch : deux graines différentes placent
+le modèle à deux points de départ différents, et la descente peut converger vers des minima
+locaux distincts.
+
+Le second est l'ordre des lots : les positions de départ dans le corpus sont elles aussi
+tirées de la graine, donc les exemples ne sont pas présentés dans le même ordre. À poids
+initiaux égaux, cela suffit à séparer deux trajectoires, puisque chaque pas de gradient dépend
+du lot courant.
+
+Le non-déterminisme du GPU — ordre d'exécution des threads, donc ordre des arrondis en virgule
+flottante — est un mécanisme réel, mais son effet mesuré ici est nul. Le run de décomposition a
+rejoué la même configuration avec la même graine 1337, 36 heures plus tard : les deux journaux
+donnent un diff vide sur 15 000 pas, et la même perte finale à quatre décimales, 1,4912 contre
+1,4912. À la précision qui nous intéresse, le GPU est donc déterministe.
+
+Ce que la mesure établit : les 0,013 d'écart proviennent entièrement de la graine, via
+l'initialisation des poids et l'ordre des lots. Le matériel n'y contribue pas.
+
 
 **Pourquoi A4 n'est pas meilleur que A2.** A4 donne un meilleur résultat très léger par
 rapport à A2 en termes de loss : l'écart est de 0,003, ce qui est très en dessous du
@@ -2282,7 +2298,7 @@ ce qui limite devient le rendement décroissant, pas la stabilité.
 identique ici : les deux mesurent sur le même lot difficile. Bruit de mesure, pas d'entraînement
 — et le plancher de 0,013 en contient donc une part.
 
-**Réglage retenu pour le run long** : `512 × 7 × 8`, 40 453 pas (1 époque exacte), cosinus,
+**Réglage retenu pour le run long** : `512 × 7 × 8`, 40 453 pas (le volume d'une époque), cosinus,
 lr 4,5·10⁻³, échauffement 1 000, décroissance sur les 10 000 derniers, écrêtage 1,0. 545 ms/pas
 mesurés, soit 6 h 07.
 
@@ -2297,6 +2313,59 @@ pas 20 000. D'où les checkpoints intermédiaires conservés.
   4,5·10⁻³ et 6·10⁻³ alors que rien ne diverge ?
 - le creux partagé au pas 5 000 vient du lot de validation. Comment mesurer une perte de
   validation qui ne dépende pas du tirage — et pourquoi ne l'a-t-on pas fait dès le début ?
+
+#### 21-22/09/2026 — le run long : l'étape 5 menée au bout
+
+**Ce qui a tourné.** 22 h 20 → 04 h 18, 5 h 58, `A3-moyen` 512 × 7 × 8, 24,38 M de paramètres,
+**40 453 pas**, 491 M tokens traversés, soit le volume d'une époque du corpus complet et
+20,4 tokens par paramètre. Cosinus, lr 4,5·10⁻³, échauffement 1 000, décroissance sur
+les 10 000 derniers, écrêtage 1,0, 534 ms/pas.
+
+**Perte de validation : 1,2382. Perplexité 3,45.** Contre 1,4635 pour l'ancien record du 16/08 —
+un gain de 0,225, soit dix-sept fois le plancher de bruit mesuré la veille.
+
+    pas   2000    6000   10000   14000   20000   26000   32000   36000   40000
+    val  1,9530  1,6381  1,5763  1,4810  1,4060  1,4122  1,3296  1,3017  1,2382
+
+Aucun plateau final : les 4 000 derniers pas valent 0,064, l'un des plus gros gains du run.
+Le run d'août plafonnait sur ses 1 000 derniers.
+
+**Ce que c'était que ce run.** C'est le livrable de l'étape 5, et il manquait depuis le début.
+Tout ce qui avait tourné jusqu'ici servait à régler les hyperparamètres d'un entraînement qui
+n'avait jamais eu lieu : le run d'août était sur l'ancien corpus de 500 Mo, et tout septembre
+n'a produit que des bancs de 78 à 90 minutes.
+
+**L'échelle loss/texte, refaite sur une plage double.** Vingt checkpoints de 1,95 à 1,24, contre
+2,32 à 1,46 la fois précédente. Les trois métriques d'échantillonnage restent plates sur toute
+la plage — la conclusion du 21/09 se confirme sur deux fois plus d'amplitude.
+
+Mais à la lecture, cette fois, le progrès se voit. Même amorce, même graine :
+
+    val 1,4810   "I am scared," she said, "Don't worry, Max. We can be friends!"
+    val 1,3631   "I am scared," she said, "It's okay, Tim. We can be brave together."
+    val 1,2382   "I am scared," she said, "What do we do?"
+
+Aux deux premiers paliers le modèle confond qui parle : le personnage effrayé prononce la
+réplique rassurante. C'est exactement le défaut qui subsistait à 1,4635 en août et qu'aucune
+métrique ne détectait. À 1,2382 il a disparu.
+
+Cela tranche entre les deux hypothèses posées la veille : le progrès entre 1,72 et 1,46 était
+**réel mais hors de portée de l'observation**, et non pas confiné à des tokens sans effet sur
+le texte. Il fallait descendre plus bas pour le rendre lisible.
+
+Réserve : trois exemples ne font pas une mesure. La lecture en aveugle par paires reste à faire.
+
+**Ce qui n'a pas bougé** : 109 caractères par texte en moyenne, la génération s'arrêtant toujours
+au premier saut de ligne (`generation.py:151`). La cohérence à longue portée n'est pas testable.
+
+**Questions ouvertes :**
+
+- la perte descendait encore franchement à l'arrêt. Qu'est-ce qui dit qu'il faut s'arrêter à une
+  époque, et qu'est-ce qui se passerait à la deuxième, sur un corpus entièrement déjà vu ?
+- le défaut d'attribution de parole disparaît entre 1,36 et 1,24. Pourquoi celui-là, à ce
+  moment-là, et qu'est-ce que ça dit de ce que le modèle apprend en dernier ?
+- 20,4 tokens par paramètre était le point de Chinchilla. Le corpus étant maintenant le facteur
+  limitant, qu'est-ce qui décide entre agrandir le modèle et repasser sur les mêmes tokens ?
 
 ---
 
