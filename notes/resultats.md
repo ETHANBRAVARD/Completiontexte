@@ -619,9 +619,12 @@ c'est-à-dire le plancher de bruit, et tous les écarts intermédiaires plus pet
     21/09, avec echauffement et ecretage, lr 4,5e-3 ->  1,945
 
 L'échauffement et l'écrêtage font passer le pas utilisable de **5·10⁻⁴ à au moins 6·10⁻³**, un
-facteur **douze**. La loi « le pas maximal stable varie comme l'inverse de la largeur », mesurée
-le 15/09, décrivait donc un entraînement sans garde-fou. Avec eux, le plafond remonte tellement
-qu'on ne le trouve plus — et ce qui limite n'est plus la stabilité mais le rendement décroissant.
+facteur **douze**.
+
+*Correction du 22/09 : j'ai d'abord conclu qu'« avec eux le plafond remonte tellement qu'on ne
+le trouve plus, et ce qui limite n'est plus la stabilité mais le rendement décroissant ». C'était
+prématuré — seul `dim=512` avait été testé. Le plafond existe, il fallait une largeur de plus
+pour le voir. Voir la section suivante.*
 
 **Un artefact de mesure, visible parce que les deux courbes le partagent.** Les deux sondes
 remontent au pas 5 000 puis redescendent, exactement au même endroit. Les lots de validation
@@ -703,3 +706,89 @@ Conséquence : le ratio de 20,4 tokens par paramètre est un ratio de *volume*, 
 distincte. Le modèle a vu l'équivalent d'une époque, pas une époque. Et il reste un tiers du
 corpus inexploité — ce qui est une réponse partielle à la question « faut-il agrandir le modèle
 ou repasser sur les tokens ».
+
+## Le plafond retrouvé, et la loi de largeur qui tient
+
+Mesuré sur une RTX 3090 (`gpu01`, machine de l'école), `A4-grand` 640 × 8 × 8, 42,28 M de
+paramètres, 1 500 pas, cosinus, échauffement 1 000, décroissance 500, écrêtage 1,0 :
+
+| lr à `dim=640` | perte val |
+|---|---|
+| 3·10⁻³ | **1,9191** |
+| 4,5·10⁻³ | 1,9269 |
+| 6·10⁻³ | **4,1992 — diverge** |
+
+Les deux premiers sont à égalité — 0,0078, sous le plancher de bruit. Le troisième casse.
+
+**Le seuil d'instabilité à `dim=640` se situe donc entre 4,5 et 6·10⁻³**, là où `dim=512`
+supportait encore 6·10⁻³ sans broncher. Le plafond existe bien : il fallait une largeur de plus
+pour l'atteindre.
+
+**Et la loi du 15/09 se vérifie quantitativement.** Si le pas maximal stable varie comme
+l'inverse de la largeur, passer de 512 à 640 — un facteur 1,25 — doit faire descendre le seuil
+de 6·10⁻³ à **4,8·10⁻³**. C'est exactement l'intervalle où la divergence se produit.
+
+| | seuil à `dim=512` | seuil à `dim=640` |
+|---|---|---|
+| sans échauffement ni écrêtage (15/09) | ~10⁻³ | ~6·10⁻⁴ |
+| avec échauffement et écrêtage (21-22/09) | > 6·10⁻³ | 4,5 – 6·10⁻³ |
+
+L'échauffement et l'écrêtage **ne suppriment pas la loi, ils la translatent** d'un facteur
+huit à dix. Sa forme — inversement proportionnelle à la largeur — est intacte. C'est un
+résultat plus fort que « le plafond a disparu » : il dit que le mécanisme sous-jacent est le
+même, et que les garde-fous déplacent le point de rupture sans changer sa dépendance à la
+largeur.
+
+**Réglage retenu pour un run long à `A4-grand` : 3·10⁻³.** Même perte que 4,5·10⁻³ et une
+marge de deux contre le seuil — ce qui compte sur 68 000 pas, là où les sondes n'en font que
+1 500.
+
+### Ce que vaut la machine de l'école
+
+Mesures en régime établi, 1 500 pas, même configuration et même graine que sur le portable :
+
+| | RTX 5050 portable | RTX 3090 `gpu01` | rapport |
+|---|---|---|---|
+| `A3-moyen` 24,4 M | 547 ms/pas | **253** | ×2,16 |
+| `A4-grand` 42,3 M | 939 ms/pas | **329** | ×2,85 |
+
+**Le gain croît avec la taille du modèle** : un petit modèle n'occupe pas une carte de 24 Gio.
+Conséquence directe, le coût relatif du gros modèle s'effondre — `A4` coûte ×1,76 le prix de
+`A3` sur le portable, mais seulement **×1,30** sur la 3090. À calcul égal, l'optimum de la
+courbe en U se déplace donc vers la droite sur cette machine : la conclusion « l'optimum est
+autour de 12 M » était une propriété du portable autant que du corpus.
+
+Le run Chinchilla complet de `A4-grand` — 846 M de tokens, 68 815 pas — passe de **17 h 55 à
+6 h 18**.
+
+**Et la reproductibilité tient d'une machine à l'autre.** `A3-moyen` à 4,5·10⁻³ donne 1,9453 sur
+le portable et **1,9456** sur la 3090, alors que tout diffère : Python 3.11 contre 3.14, torch
+2.14 contre 2.13, Ampere contre Blackwell. Trois dix-millièmes d'écart, soit quarante fois sous
+le plancher de bruit. Le résultat du 21/09 sur le déterminisme ne valait que pour une même
+machine ; il s'étend à des matériels et des versions différents.
+
+**La taille de lot n'est pas un levier ici.** `lot=32` avait été choisi pour tenir dans les
+8 Gio du portable ; la 3090 en offre 23,6, donc la question se posait. Mesuré sur `A4-grand`,
+500 pas :
+
+| lot | ms/pas | tokens/s |
+|---|---|---|
+| 32 | 346 | **35 500** |
+| 64 | 626 | 39 300 *(+10 %)* |
+| 128 | — | manque de mémoire |
+
+Doubler le lot multiplie le temps par pas par 1,81 pour deux fois plus de travail : le débit ne
+gagne que 10 %. **La carte était déjà saturée à 32** — il n'y avait pas de parallélisme
+inutilisé à récupérer. Ce qui explique aussi, rétrospectivement, pourquoi le rapport contre le
+portable plafonne à ×2,85 : la 3090 n'est pas sous-employée, elle fait le même travail plus vite.
+
+À budget de tokens fixé, passer à `lot=64` ferait gagner 38 minutes sur un run de 6 h 30.
+Réglage conservé à **32** : changer le lot change le bruit du gradient, donc le pas
+d'apprentissage optimal — et tous les seuils de stabilité mesurés aujourd'hui l'ont été à 32.
+Rejouer ça pour 10 % serait un mauvais échange.
+
+*Un piège technique, noté parce qu'il aurait coûté des heures : `CUDA_VISIBLE_DEVICES=3` ne
+désigne pas la carte 3 de `nvidia-smi`. Le runtime CUDA trie les cartes de la plus rapide à la
+plus lente par défaut, `nvidia-smi` les trie par position sur le bus PCI. Il faut joindre
+`CUDA_DEVICE_ORDER=PCI_BUS_ID` pour que les deux numérotations coïncident — sans quoi le calcul
+part sur une GTX 1660 sans que rien ne le signale.*

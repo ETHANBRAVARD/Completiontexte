@@ -99,6 +99,7 @@ def genere(checkpoint,nombre_de_car,amorce,mode="topk",temp=1.2,k=5,p=0.9,seed=F
 'pas' :sauvegarde['pas']}
     head_dim=dim//num_heads
     amorce=rencode(encode(amorce),alphabet)
+    cpt=0
     if nombre_de_car>max_len:
         nombre_de_car=max_len
     with torch.no_grad():
@@ -148,7 +149,9 @@ def genere(checkpoint,nombre_de_car,amorce,mode="topk",temp=1.2,k=5,p=0.9,seed=F
                 idx = y2[1][z].item()
             lettre=alphabet[idx]
             if lettre=='\n':
-                break
+                cpt += 1
+                if cpt == 10:
+                    break
             seq.append(idx)
         print(f"i:{fiche_car['i']},loss:{fiche_car['loss']},seed:{fiche_car['seed']}")
         return ''.join(alphabet[i] for i in seq)

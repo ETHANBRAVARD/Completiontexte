@@ -92,7 +92,7 @@ PARTIES = {
 
 def source_parametree(dim, heads, blocs, pas_max, dossier, val_tous, echantillons,
                       apprentissage=None, schedule="continu", amorce=1000, fin=1000,
-                      clip=None, graine=None):
+                      clip=None, graine=None, lot=None):
     """Rend le source de transformer.py avec les hyperparamètres substitués."""
     src = MODELE.read_text(encoding="utf-8")
     remplacements = [
@@ -112,6 +112,11 @@ def source_parametree(dim, heads, blocs, pas_max, dossier, val_tous, echantillon
                               f"config_pas=['{schedule}',{amorce},{fin},{apprentissage}]"))
     if clip is not None:
         remplacements.append((r"max_norm=[\d.e+]+", f"max_norm={clip}"))
+    if lot is not None:
+        # La taille de lot était fixée par la VRAM du portable (8 Gio). Sur une
+        # carte plus grande, l'augmenter occupe mieux le GPU : c'est le débit en
+        # tokens par seconde qu'il faut regarder, pas le temps par pas.
+        remplacements.append((r"^lot=\d+$", f"lot={lot}"))
     if graine is not None:
         # même configuration, graine différente : mesure la dispersion d'un run
         # à l'autre, donc le plancher de bruit sous lequel un écart ne veut rien dire
@@ -148,14 +153,15 @@ def lire_pertes(sortie: str):
 
 def lancer(nom, dim, blocs, heads, pas_max, racine, val_tous, echantillons, log,
            limite_s=None, apprentissage=None, schedule="continu",
-           amorce=1000, fin=1000, clip=None, graine=None, garder_tout=False):
+           amorce=1000, fin=1000, clip=None, graine=None, garder_tout=False,
+           lot=None):
     dossier = racine / nom
     dossier.mkdir(parents=True, exist_ok=True)
     source = dossier / "source.py"
     source.write_text(
         source_parametree(dim, heads, blocs, pas_max, str(dossier), val_tous,
                           echantillons, apprentissage, schedule, amorce, fin, clip,
-                          graine),
+                          graine, lot),
         encoding="utf-8")
 
     n_par = parametres(dim, blocs)
@@ -285,6 +291,10 @@ def main():
     p.add_argument("--garder-tout", action="store_true",
                    help="conserver tous les checkpoints intermédiaires (défaut : "
                         "seul le dernier). À mettre pour un run définitif.")
+    p.add_argument("--lot", type=int, default=None,
+                   help="taille de lot (défaut : celle de transformer.py, 32). "
+                        "Comparer des lots différents se fait à DÉBIT égal "
+                        "(tokens/s), pas à nombre de pas égal.")
     p.add_argument("--graine", type=int, default=None,
                    help="graine du run (défaut : celle de transformer.py). Deux runs "
                         "identiques à graines différentes donnent le plancher de bruit : "
@@ -306,6 +316,12 @@ def main():
     p.add_argument("--refaire", action="store_true",
                    help="relancer une configuration déjà présente dans le dossier")
     args = p.parse_args()
+
+    if args.lot is not None:
+        # LOT sert aussi aux journaux et au compte de tokens : sans ça le banc
+        # afficherait 32 alors qu'il en tire 128.
+        global LOT
+        LOT = args.lot
 
     if args.configs:
         voulus = [c.strip() for c in args.configs.split(",")]
@@ -382,7 +398,7 @@ def main():
             limite = args.minutes * 60
         anciens[nom] = lancer(nom, dim, blocs, heads, pas_config, racine,
                               val_config, echantillons, log, limite, lr,
-                              args.schedule, args.amorce, args.fin, args.clip, args.graine, args.garder_tout)
+                              args.schedule, args.amorce, args.fin, args.clip, args.graine, args.garder_tout, args.lot)
         ordre = [c[0] for c in catalogue]
         runs = sorted(anciens.values(), key=lambda r: ordre.index(r["nom"]))
         fichier.write_text(json.dumps(

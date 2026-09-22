@@ -363,3 +363,34 @@ intéressante plutôt que confirmatoire.
   l'étape 4, où la normalisation conditionne la stabilité de l'entraînement.
 - **Glorot & Bengio (2010)** et **He et al. (2015)** sur l'initialisation des poids —
   à sortir le jour où une loss reste plate ou part à `NaN` dès les premiers pas.
+
+## 17. Encodages de position qui extrapolent — RoPE et ALiBi *(piste, pas encore lue)*
+
+Ouverte le 22/09/2026, en butant sur le plafond de contexte du run long.
+
+Le problème concret : `pos_emb` est une table apprise de forme `(max_len, dim)`. Il n'existe
+pas de ligne 385, donc la génération ne peut pas dépasser 384 tokens, et allonger le contexte
+impose de tout réentraîner. La table est une partie des poids, pas un réglage.
+
+- **Su et al. (2021), *RoFormer: Enhanced Transformer with Rotary Position Embedding***
+  — arXiv:2104.09864. L'information de position est appliquée comme une **rotation** des
+  vecteurs requête et clé, d'un angle proportionnel à la position. Le produit scalaire
+  entre deux positions ne dépend alors que de leur **écart**, pas de leurs valeurs absolues.
+  Rien n'est appris, donc rien ne borne la longueur. C'est ce qu'utilisent la plupart des
+  modèles récents.
+- **Press, Smith & Lewis (2021), *Train Short, Test Long: Attention with Linear Biases
+  Enables Input Length Extrapolation*** — arXiv:2108.12409. Encore plus simple : aucun
+  encodage de position, mais un **biais linéaire en la distance** ajouté aux scores
+  d'attention, pénalisant les positions lointaines. Le titre est la promesse : entraîner
+  court, généraliser long.
+
+À quelle étape : ni l'une ni l'autre ne résout le vrai mur de l'étape 5, qui est que
+**TinyStories ne contient pas d'histoires longues** — un contexte extensible ne sert à rien
+sans données longues à y mettre. Elles deviennent pertinentes à l'étape 6, quand la question
+sera le coût de l'attention en fonction de la longueur, et qu'on la comparera à un modèle
+d'espace d'états dont le coût est linéaire. À lire à ce moment-là, pas avant.
+
+Le contournement sans article et sans réentraînement : **faire glisser la fenêtre** à la
+génération, en ne donnant au modèle que les `max_len` derniers tokens. Le plafond disparaît,
+la mémoire reste de 384 tokens — ce qui produit un texte long qui oublie son propre début, et
+donne à voir la limite au lieu de la contourner.

@@ -38,7 +38,7 @@ que je n'ai pas écrit serait un échec du projet.
 | 3 | RNN puis LSTM | cellule récurrente, BPTT | ✅ 29/07/2026 |
 | 4 | Transformer décodeur | attention causale, multi-têtes, blocs résiduels | ✅ 17/08/2026 |
 | 5 | Tokenizer BPE + passage à l'échelle | BPE, entraînement long, lots | 🔄 en cours |
-| 6 | Transformer contre modèle d'espace d'états | récurrence linéaire, balayage parallèle | 🔭 piste |
+| 6 | Transformer contre modèle d'espace d'états | récurrence linéaire, balayage parallèle | 🔭 piste — avec RoPE / ALiBi, les encodages de position qui extrapolent |
 | 7 | Raisonnement : en mots contre latent, sur tâche synthétique | rebouclage de l'état caché, corpus généré | 🔭 piste |
 | 8 | Substrat analogique : quantification, bruit, crossbar | quantification des poids, injection de bruit | 🔭 branche latérale |
 
@@ -81,7 +81,9 @@ illustrer une intuition. Le détail — protocole, chiffres bruts, réserves —
 | Que donne l'étape 5 menée au bout ? | 24,4 M de paramètres, le volume d'une époque du corpus complet, 6 h : **1,2382** contre 1,4635 pour l'ancien record. Un écart de 0,225, soit **dix-sept fois le plancher de bruit** |
 | Quand démarrer la décroissance ? | **Ça ne change rien de mesurable** : étendue 0,018 pour un bruit de 0,013 |
 | Deux runs identiques, à quel point diffèrent-ils ? | **0,013** de perte de validation. C'est le plancher sous lequel une comparaison ne veut rien dire — et il invalide deux conclusions écrites ici en septembre |
-| Jusqu'où monter le pas d'apprentissage ? | L'échauffement et l'écrêtage le font passer de **5·10⁻⁴ à au moins 6·10⁻³** à `dim=512`, un facteur douze. Aucune divergence sur 4 500 pas au pas de base ; ce qui limite n'est plus la stabilité mais le rendement décroissant |
+| Jusqu'où monter le pas d'apprentissage ? | L'échauffement et l'écrêtage le font passer de **5·10⁻⁴ à ~5·10⁻³**, un facteur dix. Le plafond existe toujours — il se mesure à `dim=640`, entre 4,5 et 6·10⁻³ |
+| La loi « seuil ∝ 1/largeur » survit-elle à l'échauffement ? | **Oui, translatée.** 512 → 640 fait ×1,25 ; le seuil prédit passe de >6·10⁻³ à 4,8·10⁻³, et la divergence tombe exactement dans cet intervalle |
+| Un lot plus grand irait-il plus vite ? | **Non** : 32 → 64 ne gagne que 10 % de débit, 128 manque de mémoire. La carte est déjà saturée à 32 |
 | D'où vient ce bruit ? | **Entièrement de la graine.** À graine fixée, deux runs relancés à 36 h d'intervalle donnent des journaux au diff vide : le non-déterminisme du GPU n'y contribue rien de mesurable |
 | Combien de bits les poids portent-ils ? | **8,3 bits** en virgule fixe, **4,0 bits** de mantisse. La précision mixte ne rapporterait que 8 % |
 | Où le modèle est-il fragile ? | Par rôle, pas par volume : `W_2` tolère 1,09 % de bruit, `W_q` 5,63 % — à forme identique |

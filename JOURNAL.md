@@ -2290,8 +2290,11 @@ bruit, et moins que ça partout ailleurs.
 **Le résultat.** Au même pas 2 000, sur la même forme : 2,12 le 15/09 sans garde-fou à 5·10⁻⁴,
 **1,945 aujourd'hui avec échauffement et écrêtage à 4,5·10⁻³**. Le pas utilisable passe de
 5·10⁻⁴ à au moins 6·10⁻³, **un facteur douze**. La loi mesurée le 15/09 décrivait un
-entraînement sans garde-fou ; avec eux, le plafond remonte au point qu'on ne le trouve plus, et
-ce qui limite devient le rendement décroissant, pas la stabilité.
+entraînement sans garde-fou.
+
+*Corrigé le 22/09 : j'avais écrit ici « le plafond remonte au point qu'on ne le trouve plus, et
+ce qui limite devient le rendement décroissant, pas la stabilité ». Faux, et prématuré — seul
+`dim=512` avait été testé. À `dim=640`, 6·10⁻³ diverge. Voir l'entrée du 22/09 au soir.*
 
 **Un artefact repéré parce que deux courbes le partagent.** Les deux sondes remontent au pas
 5 000 puis redescendent, au même endroit. Les lots de validation sont tirés par la graine,
@@ -2366,6 +2369,89 @@ au premier saut de ligne (`generation.py:151`). La cohérence à longue portée 
   moment-là, et qu'est-ce que ça dit de ce que le modèle apprend en dernier ?
 - 20,4 tokens par paramètre était le point de Chinchilla. Le corpus étant maintenant le facteur
   limitant, qu'est-ce qui décide entre agrandir le modèle et repasser sur les mêmes tokens ?
+
+#### 22/09/2026 (soir) — le plafond retrouvé, et la machine de l'école
+
+**Le contexte.** Accès obtenu aux VM GPU de Rezel. `gpu01` a quatre cartes dont une **RTX 3090**
+libre avec 22,4 Gio. Corpus et code transférés, torch installé dans un venv, environ deux heures
+de mise en place — dont un bon moment perdu sur deux pièges que je consigne plus bas.
+
+**Ce que vaut la machine**, en régime établi, même configuration et même graine que chez moi :
+
+    A3-moyen 24,4 M    547 ms/pas (portable)  ->  253 (3090)   x2,16
+    A4-grand 42,3 M    939 ms/pas (portable)  ->  329 (3090)   x2,85
+
+Le gain croît avec la taille : un petit modèle n'occupe pas une carte de 24 Gio. Du coup `A4`
+ne coûte que ×1,30 le prix de `A3` sur la 3090, contre ×1,76 sur le portable — **à calcul égal,
+l'optimum de la courbe en U se déplace vers la droite sur cette machine**. Ma conclusion
+« l'optimum est autour de 12 M » était une propriété de mon portable autant que de mon corpus.
+
+Le run Chinchilla complet de `A4-grand` passe de 17 h 55 à **6 h 18**.
+
+**La reproductibilité s'étend au matériel.** `A3-moyen` à 4,5·10⁻³ : 1,9453 sur le portable,
+**1,9456** sur la 3090. Python 3.11 contre 3.14, torch 2.14 contre 2.13, Ampere contre
+Blackwell — et trois dix-millièmes d'écart, quarante fois sous le plancher de bruit. Le
+résultat du 21/09 ne valait que pour une même machine ; il tient d'une machine à l'autre.
+
+**Le plafond du pas d'apprentissage, enfin trouvé.** `A4-grand`, `dim=640`, 1 500 pas :
+
+    3e-3    1,9191
+    4,5e-3  1,9269
+    6e-3    4,1992   diverge
+
+Les deux premiers sont à égalité (0,0078, sous le bruit). Le seuil est donc **entre 4,5 et
+6·10⁻³ à `dim=640`**, alors que `dim=512` supportait encore 6·10⁻³.
+
+**Et la loi du 15/09 se vérifie quantitativement.** 512 → 640 fait ×1,25 en largeur ; si le seuil
+varie en `1/largeur`, il doit passer de 6·10⁻³ à **4,8·10⁻³**. C'est exactement l'intervalle où
+la divergence tombe. L'échauffement et l'écrêtage **ne suppriment pas la loi, ils la translatent**
+d'un facteur huit à dix, sans changer sa forme.
+
+**Deux pièges techniques, consignés parce qu'ils coûtent cher.**
+
+`CUDA_VISIBLE_DEVICES=3` ne désigne pas la carte 3 de `nvidia-smi`. CUDA trie les cartes de la
+plus rapide à la plus lente, `nvidia-smi` par position sur le bus PCI. Il faut y joindre
+`CUDA_DEVICE_ORDER=PCI_BUS_ID`. Sans ça le calcul part sur une GTX 1660 et rien ne le signale.
+
+Le DNS des VM publie une adresse IPv6 non routée depuis le VPN : `ssh` échouait en « No route to
+host » alors que les machines répondaient parfaitement en IPv4. Une heure perdue à chercher un
+problème de clé qui n'existait pas. `AddressFamily inet` dans `~/.ssh/config` règle la question.
+
+**Erreur de ma part, consignée.** `programme.py etalon` mesure 60 pas par configuration et
+inclut le démarrage : il donnait 401 à 918 ms/pas là où le régime établi donne 253 à 329. Le
+même biais que l'ancienne sonde de 40 pas, déjà documenté dans le README en septembre — et que
+j'avais reproduit en plaçant `etalon` en tête de la procédure d'installation. Une calibration
+courte ne sert qu'à ordonner des configurations entre elles, jamais à comparer deux machines.
+
+**La taille de lot ne sert à rien ici.** `lot=32` avait été imposé par les 8 Gio du portable ;
+la 3090 en a 23,6. Sur `A4-grand`, 500 pas :
+
+    lot 32    346 ms/pas    35 500 tokens/s
+    lot 64    626 ms/pas    39 300 tokens/s   (+10 %)
+    lot 128   manque de memoire
+
+Doubler le lot ne gagne que 10 % de débit : la carte était déjà saturée à 32. Réglage conservé —
+changer le lot change le bruit du gradient donc le pas optimal, et tous les seuils mesurés
+aujourd'hui l'ont été à 32. Rejouer ça pour 10 % serait un mauvais échange.
+
+**Lancé ce soir, 20 h 51** : `A4-grand`, **120 000 pas**, lot 32, cosinus, lr 3·10⁻³,
+échauffement 1 000, décroissance 30 000, écrêtage 1,0, checkpoints conservés. Onze heures, fin
+vers 7 h 50. 1 479 M de tokens, soit **35 par paramètre et trois fois le volume du corpus** —
+donc chaque token vu ~3 fois, couverture 95 %.
+
+C'est délibérément **au-delà du point de Chinchilla** : ce n'est plus compute-optimal, mais
+c'est le premier run qui entre dans le régime de répétition. Deux questions ouvertes y
+répondent d'un coup — « qu'est-ce qui se passerait à la deuxième époque » (21-22/09) et
+l'objectif **régularisation** de l'étape 5, revenu négatif ce matin faute de répétition. Si un
+écart train/val apparaît, c'est cette nuit.
+
+**Questions ouvertes :**
+
+- le seuil suit `1/largeur` avec et sans échauffement, mais décalé d'un facteur huit. Qu'est-ce
+  que l'échauffement empêche exactement, pour multiplier le seuil sans changer sa dépendance ?
+- `A4` coûte ×1,30 le prix de `A3` sur la 3090 contre ×1,76 sur le portable. Qu'est-ce qui, dans
+  la façon dont le GPU exécute une couche, produit cette différence de rendement d'échelle ?
+- si la courbe en U dépend de la machine, que reste-t-il de « la taille optimale » comme notion ?
 
 ---
 
