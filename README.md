@@ -83,6 +83,7 @@ illustrer une intuition. Le détail — protocole, chiffres bruts, réserves —
 | Deux runs identiques, à quel point diffèrent-ils ? | **0,013** de perte de validation. C'est le plancher sous lequel une comparaison ne veut rien dire — et il invalide deux conclusions écrites ici en septembre |
 | Jusqu'où monter le pas d'apprentissage ? | L'échauffement et l'écrêtage le font passer de **5·10⁻⁴ à ~5·10⁻³**, un facteur dix. Le plafond existe toujours — il se mesure à `dim=640`, entre 4,5 et 6·10⁻³ |
 | La loi « seuil ∝ 1/largeur » survit-elle à l'échauffement ? | **Oui, translatée.** 512 → 640 fait ×1,25 ; le seuil prédit passe de >6·10⁻³ à 4,8·10⁻³, et la divergence tombe exactement dans cet intervalle |
+| Les métriques de texte suivent-elles la perte ? | **Oui au-dessus de 1,3** (r = 0,40 à 0,58 sur 40 paliers), **non en dessous** : seule la métrique lexicale garde un signal. Les avoir crues saturées était un artefact — les textes ne faisaient que 120 caractères |
 | Un lot plus grand irait-il plus vite ? | **Non** : 32 → 64 ne gagne que 10 % de débit, 128 manque de mémoire. La carte est déjà saturée à 32 |
 | D'où vient ce bruit ? | **Entièrement de la graine.** À graine fixée, deux runs relancés à 36 h d'intervalle donnent des journaux au diff vide : le non-déterminisme du GPU n'y contribue rien de mesurable |
 | Combien de bits les poids portent-ils ? | **8,3 bits** en virgule fixe, **4,0 bits** de mantisse. La précision mixte ne rapporterait que 8 % |

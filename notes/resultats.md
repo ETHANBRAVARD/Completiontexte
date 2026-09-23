@@ -670,8 +670,11 @@ Vingt checkpoints, de 1,95 à 1,24 — là où le run du 16/08 n'offrait que 2,3
 
 **Les trois métriques d'échantillonnage restent plates sur toute la plage**, comme la fois
 précédente : mots inexistants entre 0 et 0,5 %, répétition entre 0 et 1,5 %, redite entre 0 et
-1 %, sans aucune tendance. La conclusion se confirme sur un intervalle deux fois plus large —
-elles ne mesurent rien de ce qui change en dessous de 1,7.
+1 %, sans aucune tendance.
+
+*Correction du 23/09 : faux, et pour une raison instructive — les textes ne faisaient que
+120 caractères, parce que la génération s'arrêtait au premier saut de ligne. Sur des textes de
+340 tokens, les trois métriques corrèlent bel et bien avec la perte. Voir la section suivante.*
 
 **Mais à la lecture, cette fois, le progrès est visible.** Sur la même amorce et la même graine :
 
@@ -792,3 +795,49 @@ désigne pas la carte 3 de `nvidia-smi`. Le runtime CUDA trie les cartes de la p
 plus lente par défaut, `nvidia-smi` les trie par position sur le bus PCI. Il faut joindre
 `CUDA_DEVICE_ORDER=PCI_BUS_ID` pour que les deux numérotations coïncident — sans quoi le calcul
 part sur une GTX 1660 sans que rien ne le signale.*
+
+## Les métriques ne saturaient pas : les textes étaient trop courts
+
+Quarante checkpoints du run de 120 000 pas, de **1,77 à 1,10** — la plus large plage jamais
+mesurée — avec les mêmes 15 amorces et les mêmes graines à chaque palier. Une seule chose change
+par rapport aux deux mesures précédentes : les textes font **340 tokens au lieu de ~40**, parce
+que la génération ne s'arrête plus au premier saut de ligne.
+
+**Sur l'ensemble de la plage, les trois métriques corrèlent avec la perte :**
+
+| métrique | corrélation avec la perte | p |
+|---|---|---|
+| mots inexistants | **+0,584** | < 0,0001 |
+| répétition | **+0,455** | 0,0017 |
+| redite | **+0,400** | 0,0072 |
+
+Les trois sont positives et significatives à n = 40 : quand la perte descend, les trois défauts
+reculent. La conclusion des 21 et 22/09 — « elles saturent sous 1,7 et ne mesurent plus rien » —
+était donc **un artefact de la longueur des textes**. Sur 120 caractères, il n'y a qu'une
+vingtaine de 4-grammes : presque rien à répéter, presque rien à partager. Les métriques tombaient
+à zéro par manque de matière, pas par excellence du modèle.
+
+**Mais restreint aux paliers sous 1,30, le tableau change complètement :**
+
+| métrique | corrélation (n = 29) | p |
+|---|---|---|
+| mots inexistants | +0,386 | 0,030 |
+| répétition | −0,058 | 0,76 |
+| redite | −0,191 | 0,31 |
+
+**Seule la métrique lexicale garde un signal**, et encore, faible. Les deux métriques
+structurelles n'en ont plus aucun : leurs corrélations sont négatives, non significatives,
+c'est-à-dire indistinguables de zéro.
+
+**La lecture juste est donc intermédiaire entre les deux erreurs commises.** Les métriques ne
+sont pas inutiles — elles suivent la perte tant qu'il reste des défauts grossiers à corriger,
+c'est-à-dire au-dessus de 1,3. En dessous, elles cessent de discriminer, et ce n'est plus un
+problème de longueur de texte mais de nature : elles comptent des symptômes de surface qui ont
+disparu, pendant que ce qui progresse encore — la cohérence, le sens — n'est mesuré par aucune
+des trois.
+
+*Deux erreurs de méthode dans cette seule mesure, et elles s'annulent presque. La première :
+conclure « elles saturent » sans remarquer que les textes étaient trop courts pour qu'elles aient
+quoi que ce soit à mesurer. La seconde : annoncer une tendance nette à mi-parcours, sur les onze
+premiers points d'une série bruitée, alors que les vingt-neuf suivants la démentent. Deux façons
+opposées de lire une courbe partielle.*

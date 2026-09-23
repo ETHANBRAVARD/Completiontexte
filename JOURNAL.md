@@ -2340,7 +2340,11 @@ n'a produit que des bancs de 78 à 90 minutes.
 
 **L'échelle loss/texte, refaite sur une plage double.** Vingt checkpoints de 1,95 à 1,24, contre
 2,32 à 1,46 la fois précédente. Les trois métriques d'échantillonnage restent plates sur toute
-la plage — la conclusion du 21/09 se confirme sur deux fois plus d'amplitude.
+la plage — la conclusion du 21/09 semble se confirmer sur deux fois plus d'amplitude.
+
+*Corrigé le 23/09 : les textes ne faisaient que 120 caractères, la génération s'arrêtant au
+premier saut de ligne. Sur 340 tokens, les métriques corrèlent avec la perte. Voir l'entrée du
+23/09.*
 
 Mais à la lecture, cette fois, le progrès se voit. Même amorce, même graine :
 
@@ -2452,6 +2456,52 @@ l'objectif **régularisation** de l'étape 5, revenu négatif ce matin faute de 
 - `A4` coûte ×1,30 le prix de `A3` sur la 3090 contre ×1,76 sur le portable. Qu'est-ce qui, dans
   la façon dont le GPU exécute une couche, produit cette différence de rendement d'échelle ?
 - si la courbe en U dépend de la machine, que reste-t-il de « la taille optimale » comme notion ?
+
+#### 23/09/2026 — les métriques ne saturaient pas, les textes étaient trop courts
+
+**Ce qui a tourné.** L'échelle loss/texte sur les 40 checkpoints du run de la nuit, de 1,77 à
+1,10 — la plus large plage jamais mesurée. 1 h 35 sur la 3090, 146 s par palier.
+
+**Pourquoi c'est si lent, et c'est instructif.** Les textes font 340 tokens au lieu de ~40, parce
+que ma correction du compteur de sauts de ligne a levé l'arrêt au premier `\n`. Or `genere()`
+recalcule toute l'attention à chaque nouveau token : le coût est en `T²`. Passer de 40 à 340
+tokens multiplie le travail par ~70, pas par 8. C'est l'argument de l'étape 6, rencontré en
+pratique.
+
+**Le résultat, sur les 40 paliers :**
+
+    mots inexistants   r = +0,584   p < 0,0001
+    repetition         r = +0,455   p = 0,0017
+    redite             r = +0,400   p = 0,0072
+
+Les trois corrèlent avec la perte. **Ce qu'on avait conclu les 21 et 22/09 — « elles saturent
+sous 1,7 » — était un artefact de la longueur des textes.** Sur 120 caractères il n'y a qu'une
+vingtaine de 4-grammes : presque rien à répéter, presque rien à partager. Elles tombaient à zéro
+par manque de matière.
+
+**Mais sous 1,30, seule la métrique lexicale survit :**
+
+    mots inexistants   r = +0,386   p = 0,030
+    repetition         r = -0,058   p = 0,76     rien
+    redite             r = -0,191   p = 0,31     rien
+
+Donc elles suivent la perte tant qu'il reste des défauts grossiers, et cessent de discriminer
+une fois ceux-ci disparus. Ce n'est plus une question de longueur mais de nature : elles comptent
+des symptômes de surface, pendant que ce qui progresse encore — la cohérence, le sens — n'est
+mesuré par aucune des trois.
+
+**Deux erreurs de Claude dans cette seule mesure, en sens opposés.** Conclure « elles saturent »
+sans voir que les textes étaient trop courts pour qu'elles aient quoi que ce soit à mesurer ;
+puis annoncer une tendance nette à mi-parcours, sur les onze premiers points d'une série que les
+vingt-neuf suivants démentent. Deux façons de lire une courbe partielle.
+
+**Questions ouvertes :**
+
+- les métriques cessent de discriminer sous 1,30, et c'est justement là que la lecture montre un
+  progrès (le défaut d'attribution de parole disparaît entre 1,36 et 1,24). Qu'est-ce qu'une
+  métrique devrait compter pour attraper ça ?
+- la corrélation sur toute la plage vaut +0,4 à +0,6, mais disparaît sur la moitié basse.
+  Qu'est-ce que ça dit de la valeur d'une corrélation mesurée sur un intervalle large ?
 
 ---
 
