@@ -2,7 +2,7 @@
 """
 Programme de nuit portable — zone verte (orchestration).
 
-Même rôle que nuit6.sh / run_long.sh, mais en Python : le PC fixe est sous
+Même rôle que nuits/nuit6.sh / nuits/run_long.sh, mais en Python : le PC fixe est sous
 Windows, où bash n'existe pas. Ce fichier tourne tel quel sur Linux, sur
 Windows natif et sous WSL.
 

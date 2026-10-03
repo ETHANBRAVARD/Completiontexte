@@ -25,7 +25,7 @@
 #     fait x1,33, donc 2e-3 pourrait ne pas tenir. D'où la sonde ci-dessous.
 #   --fin : à remplacer par le résultat de la nuit du 20-21.
 set -u
-cd "$(dirname "$0")/.."
+cd "$(dirname "$0")/../.."
 
 LR=${LR:-0.0015}          # pas de base      (surchargeable : LR=0.002 ./run_long.sh)
 FIN=${FIN:-14000}         # pas de décroissance -> à fixer d'après la nuit 6
@@ -57,7 +57,7 @@ Lis les pertes ci-dessus AVANT de lancer les six heures.
 
 Le run long ne part PAS tout seul. Quand la sonde est bonne :
 
-    PAS=40453 LR=<le pas validé> FIN=<la nuit 6> ./scripts/run_long.sh --go
+    PAS=40453 LR=<le pas validé> FIN=<la nuit 6> ./scripts/nuits/run_long.sh --go
 
 TXT
 

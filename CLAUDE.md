@@ -133,10 +133,11 @@ pour qu'Ethan sache sur quoi revenir plus tard. Si Claude constate que le mot-cl
 
 ### Garde-fou technique
 
-En complément de cette règle, `src/model/` peut être protégé au niveau du harness via
+En complément de cette règle, `src/model/` est protégé au niveau du harness via
 `permissions.deny` dans `.claude/settings.json` (`Edit(src/model/**)`,
-`Write(src/model/**)`). À mettre en place — la règle écrite ne suffit pas, la
-protection mécanique oui.
+`Write(src/model/**)`). En place — la règle écrite ne suffit pas, la protection
+mécanique oui. En pratique, le harness bloque aussi les commandes shell qui touchent
+`src/model/` (déplacements, création de dossiers) : Ethan les tape lui-même.
 
 ## 4. Feuille de route
 
@@ -190,18 +191,24 @@ Règle d'hygiène : tout run > 5 minutes écrit ses logs et son checkpoint dans
 Completiontexte/
 ├── CLAUDE.md            # ce fichier
 ├── JOURNAL.md           # journal d'apprentissage d'Ethan + log des `PSEUDOCODE`
+├── README.md            # synthèse courte des résultats
 ├── src/
 │   ├── model/           # ZONE ROUGE — Ethan uniquement
-│   └── tooling/         # ZONE VERTE — Claude autorisé
-├── scripts/             # CLI d'entraînement/éval (orchestration, zone verte)
+│   │   ├── *.py         #   socle des étapes 0–5 (bigramme → transformer, BPE)
+│   │   ├── espace_etats/  # étape 6
+│   │   ├── raisonnement/  # étape 7
+│   │   ├── analogique/    # étape 8 (bruit, quantification)
+│   │   └── archives/      # code abandonné, gardé pour mémoire
+│   └── tooling/         # ZONE VERTE — vérificateurs, tracés, préparation des données
+├── scripts/             # orchestration, zone verte — mêmes sous-dossiers par branche
+│   └── nuits/           #   programmes de nuit historiques
 ├── data/                # corpus (non versionnés)
-├── runs/                # checkpoints, logs, courbes
-├── notes/biblio.md      # bibliographie annotée
-└── tests/
+├── runs/                # checkpoints, logs, courbes (non versionnés)
+└── notes/               # biblio, résultats détaillés, questionnaire de bilan
 ```
 
-Le fichier `Completion_de_texte.py` à la racine est un vestige vide : à supprimer ou à
-déplacer dans `src/model/` au démarrage de l'étape 0.
+Les tests d'interface vivent dans `src/tooling/verifier_*.py`, pas dans un dossier
+`tests/` séparé.
 
 ## 7. Conventions
 

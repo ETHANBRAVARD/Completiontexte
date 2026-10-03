@@ -11,7 +11,7 @@
 # n'est pas lancée — trois runs de 90 min sur des modèles qui divergent ne
 # mesureraient rien.
 set -u
-cd "$(dirname "$0")/.."
+cd "$(dirname "$0")/../.."
 J=runs/nuit3-$(date +%Y%m%d-%H%M).log
 log() { echo "[$(date '+%H:%M:%S')] $*" | tee -a "$J"; }
 
@@ -25,7 +25,7 @@ for ckpt in runs/echelle-20260908-2339/A1-petit/*.pt \
             runs/echelle-20260908-2339/A3-moyen/*.pt \
             runs/echelle-20260908-2339/B2-profond/*.pt; do
   log "banc de bruit : $ckpt"
-  python3 scripts/banc_bruit.py --checkpoint "$ckpt" >>"$J" 2>&1
+  python3 scripts/analogique/banc_bruit.py --checkpoint "$ckpt" >>"$J" 2>&1
   sleep 70   # les dossiers de banc sont horodatés à la minute
 done
 

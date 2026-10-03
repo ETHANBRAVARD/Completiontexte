@@ -2,7 +2,7 @@
 
 Zone verte (tooling) : orchestration, mesure, tracé. N'implémente aucun bruit et
 aucune passe avant — il appelle `bruit_mult`, `bruit_add` et `loss_validation`
-de `src/model/Bruit.py`, telles qu'Ethan les a écrites.
+de `src/model/analogique/Bruit.py`, telles qu'Ethan les a écrites.
 
 Le point de méthode : **les lots de validation sont les mêmes pour tous les
 alpha.** `tireur_de_lot` tire ses positions avec le module `random` de Python,
@@ -18,9 +18,9 @@ On rapporte donc deux choses par point :
     moins bruité puisque la variance des lots s'y annule.
 
 Usage :
-    python3 scripts/banc_bruit.py
-    python3 scripts/banc_bruit.py --repetitions 8 --alphas 0.01,0.05,0.1
-    python3 scripts/banc_bruit.py --checkpoint runs/.../sauvegarde_45000.pt
+    python3 scripts/analogique/banc_bruit.py
+    python3 scripts/analogique/banc_bruit.py --repetitions 8 --alphas 0.01,0.05,0.1
+    python3 scripts/analogique/banc_bruit.py --checkpoint runs/.../sauvegarde_45000.pt
 """
 
 import argparse
@@ -37,8 +37,9 @@ from pathlib import Path
 import numpy as np
 import torch
 
-ROOT = Path(__file__).resolve().parent.parent
+ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "src" / "model"))
+sys.path.insert(0, str(ROOT / "src" / "model" / "analogique"))
 sys.path.insert(0, str(ROOT / "src" / "tooling"))
 
 FAMILLES = ["W_q", "W_k", "W_v", "W_o", "W_1", "W_2", "W_out"]

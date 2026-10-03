@@ -18,7 +18,7 @@
 #
 # ~79 min par run, 6 runs -> ~8 h. Lancé à 20 h, terminé vers 4 h.
 set -u
-cd "$(dirname "$0")/.."
+cd "$(dirname "$0")/../.."
 J=runs/nuit6-$(date +%Y%m%d-%H%M).log
 log() { echo "[$(date '+%H:%M:%S')] $*" | tee -a "$J"; }
 

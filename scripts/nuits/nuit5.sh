@@ -12,7 +12,7 @@
 # de pas égal, ce qui est indispensable ici — la forme du cosinus dépend de
 # `nb_passage`, elle n'aurait aucun sens avec un arrêt au chronomètre.
 set -u
-cd "$(dirname "$0")/.."
+cd "$(dirname "$0")/../.."
 J=runs/nuit5-$(date +%Y%m%d-%H%M).log
 log() { echo "[$(date '+%H:%M:%S')] $*" | tee -a "$J"; }
 
