@@ -122,7 +122,7 @@ for i in range(nb_passage):
     targets=target_indices.to(torch.int64)
     loss=F.cross_entropy(logits.view(lot*max_len,alph), targets.view(lot*max_len,))
     loss.backward()
-    torch.nn.utils.clip_grad_norm_(params, max_norm=10)
+    torch.nn.utils.clip_grad_norm_(params, max_norm=1)
     with torch.no_grad():
         for j,p in enumerate(params):
             m[j]=beta1*m[j]+(1-beta1)*p.grad
