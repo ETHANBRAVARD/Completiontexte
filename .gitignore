@@ -21,3 +21,6 @@ venv/
 
 # Divers
 .DS_Store
+
+# Feuilles de route personnelles par branche
+FEUILLE_DE_ROUTE.md

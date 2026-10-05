@@ -196,6 +196,17 @@ def main():
         d = Path(args.retracer)
         d = d if d.is_absolute() else ROOT / d
         c = json.loads((d / "resultats.json").read_text(encoding="utf-8"))
+        titre = f"{Path(c['checkpoint']).parent.name}, pas {c['pas']}"
+        if "par_famille" in c:
+            # Le tracé par famille affiche le nombre de poids de chaque famille :
+            # il lui faut le checkpoint. Celui du json, ou --checkpoint s'il a été
+            # rapatrié ailleurs (lu en mmap, rien n'est chargé en mémoire).
+            ckpt = Path(c["checkpoint"]) if args.checkpoint == str(CHECKPOINT) else Path(args.checkpoint)
+            ckpt = ckpt if ckpt.is_absolute() else ROOT / ckpt
+            modele = torch.load(ckpt, map_location="cpu", mmap=True, weights_only=False)
+            tracer_familles(c["par_famille"], c["sans_bruit"], d / "familles.png", titre, modele)
+            print(f"graphique refait : {(d / 'familles.png').relative_to(ROOT)}")
+            return 0
         tracer(c["resultats"], c["sans_bruit"], d / "bruit.png",
                f"{Path(c['checkpoint']).parent.name}, pas {c['pas']}",
                c.get("vocabulaire", 2080))
@@ -211,8 +222,11 @@ def main():
     alphas = [float(a) for a in args.alphas.split(",")]
     reps = list(range(args.repetitions))
 
-    dossier = ROOT / "runs" / f"bruit-{datetime.now():%Y%m%d-%H%M}"
-    dossier.mkdir(parents=True, exist_ok=True)
+    # Le mode et les secondes dans le nom : deux bancs lancés dans la même minute
+    # écrivaient dans le même dossier, et le dernier fini écrasait l'autre.
+    mode = "famille" if args.par_famille else "global"
+    dossier = ROOT / "runs" / f"bruit-{datetime.now():%Y%m%d-%H%M%S}-{mode}"
+    dossier.mkdir(parents=True, exist_ok=False)
     n_par = sum(t.numel() for k in ("W_q", "W_k", "W_v", "W_o", "W_1", "W_2")
                 for t in modele[k]) + modele["W_out"].numel()
 
