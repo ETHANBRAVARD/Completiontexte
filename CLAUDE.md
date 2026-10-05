@@ -41,7 +41,7 @@ formule transcrite ligne à ligne, commentaire suggérant l'implémentation) :
 Il les écrit lui-même, mais ce sont les deux sujets sur lesquels Claude accompagne le
 plus activement : relecture systématique, et recours au mot-clé `PSEUDOCODE` attendu.
 
-### Zone verte — Claude peut coder (`src/tooling/`, `scripts/`, `tests/`)
+### Zone verte — Claude peut coder (`src/tooling/`, `scripts/`)
 
 - téléchargement, nettoyage, normalisation, découpage train/val/test des corpus ;
 - I/O : lecture/écriture de fichiers, sérialisation des checkpoints, format des runs ;
@@ -171,6 +171,9 @@ Vérifié le 24/07/2026 :
 - PyTorch **2.13.0+cu130**, CUDA disponible et testé (matmul GPU OK)
 - CPU i5-13450HX, 10 cœurs / 16 threads — RAM 15 Go — 454 Go libres
 - Python 3.14.6, NumPy 2.5.1, git 2.55
+- Machine de l'école (`gpu01`, vérifiée le 22/09/2026) : **RTX 3090 24 Go**, partagée,
+  PyTorch 2.14, Python 3.11 — pour les runs longs. Accès par le VPN de l'école ;
+  lancer avec `CUDA_DEVICE_ORDER=PCI_BUS_ID`, sinon `CUDA_VISIBLE_DEVICES` vise la mauvaise carte.
 
 Ordres de grandeur attendus sur cette machine :
 

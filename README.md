@@ -1,8 +1,8 @@
 # Completiontexte
 
 Un modèle de langage écrit de zéro, de la table de comptage bigramme au transformer
-décodeur entraîné sur 126 millions de tokens — sans `transformers`, sans `tokenizers`,
-sans copier-coller.
+décodeur de 42 millions de paramètres entraîné sur 1,5 milliard de tokens — sans
+`transformers`, sans `tokenizers`, sans copier-coller.
 
 L'objectif n'est pas d'obtenir le meilleur modèle : c'est de comprendre chaque
 mécanisme en l'écrivant. Tout ce qui apprend, prédit ou calcule un gradient a été écrit
@@ -16,7 +16,7 @@ le dépôt est découpé en **zone rouge** et **zone verte**.
 | Zone | Contenu | Qui écrit |
 |---|---|---|
 | 🔴 `src/model/` | architecture, forward, backward, perte, optimiseur, tokenizer, échantillonnage | moi, exclusivement |
-| 🟢 `src/tooling/`, `scripts/`, `tests/` | préparation des corpus, I/O, CLI, logs, courbes, tests de formes | assistance IA autorisée |
+| 🟢 `src/tooling/`, `scripts/` | préparation des corpus, I/O, CLI, logs, courbes, vérificateurs | assistance IA autorisée |
 
 L'assistant IA que j'utilise est cantonné à un rôle de professeur et de relecteur sur la
 zone rouge : il peut poser des questions, nommer un concept, pointer une erreur et sa
@@ -37,10 +37,10 @@ que je n'ai pas écrit serait un échec du projet.
 | 2 | Le même MLP en PyTorch | vérification contre les gradients de l'étape 1 | ✅ 29/07/2026 |
 | 3 | RNN puis LSTM | cellule récurrente, BPTT | ✅ 29/07/2026 |
 | 4 | Transformer décodeur | attention causale, multi-têtes, blocs résiduels | ✅ 17/08/2026 |
-| 5 | Tokenizer BPE + passage à l'échelle | BPE, entraînement long, lots | 🔄 en cours |
+| 5 | Tokenizer BPE + passage à l'échelle | BPE, entraînement long, lots | ✅ 23/09/2026 |
 | 6 | Transformer contre modèle d'espace d'états | récurrence linéaire, balayage parallèle | 🔭 piste — avec RoPE / ALiBi, les encodages de position qui extrapolent |
 | 7 | Raisonnement : en mots contre latent, sur tâche synthétique | rebouclage de l'état caché, corpus généré | 🔭 piste |
-| 8 | Substrat analogique : quantification, bruit, crossbar | quantification des poids, injection de bruit | 🔭 branche latérale |
+| 8 | Substrat analogique : quantification, bruit, crossbar | quantification des poids, injection de bruit | 🔄 ouverte le 14/09 — bruit mesuré, quantification à écrire |
 
 Les étapes 6 à 8 sont des **branches, pas une suite** — elles s'ouvrent une fois que la 5
 tourne, dans l'ordre qu'on veut.
@@ -50,18 +50,24 @@ tout le reste du fichier est identique, donc la comparaison n'a qu'une variable.
 exige un corpus nouveau — TinyStories ne contient aucune étape intermédiaire à raisonner ;
 il se génère, donc il est gratuit. La **8** est latérale : elle enseigne le substrat de
 calcul plutôt que les modèles de langue, et sa première question se règle entièrement en
-logiciel — mes poids survivent-ils à 6 bits bruités ?
+logiciel — mes poids survivent-ils à 6 bits bruités ? C'est la branche ouverte aujourd'hui.
 
 ## Résultats en un coup d'œil
 
-État actuel : **transformer 24,4 M de paramètres**, 7 blocs pre-norm, contexte 384,
-entraîné sur un corpus TinyStories de 2,2 Go tokenisé maison — 491 M tokens traversés,
-20,4 par paramètre, soit **le volume d'une époque**. Perte de validation
-**1,2382**, perplexité **3,45**. Six heures sur une RTX 5050 portable.
+État actuel : **transformer 42,3 M de paramètres**, 8 blocs pre-norm de largeur 640,
+8 têtes, contexte 384, vocabulaire BPE de 2 080 tokens, entraîné sur un corpus TinyStories
+de 2,2 Go tokenisé maison (497 M tokens). 120 000 pas, 1,47 milliard de tokens traversés,
+soit **trois passages sur le corpus**. Perte de validation **1,1433**, perplexité **3,14**,
+sans surapprentissage visible. Dix heures sur une RTX 3090 de l'école ; le modèle
+précédent, 24,4 M sur une seule époque, atteignait 1,2382 en six heures sur mon portable.
 
-> Tim and his dog were playing in the garden when they found a big, shiny rock. They were
-> very happy and started to dig with the rock in their hands. They wanted to show the rock
-> to Tim's mom and dad, so they ran inside to show them.
+> *Tim and his dog were playing in the garden when* they heard a loud noise. It was a big
+> truck! Tim and the dog were scared. They ran to Tim's house to hide. When they were
+> inside, Tim's mom said, "Don't worry, the truck is just doing its job. We'll get some
+> water to wash away the dirt." Tim was happy his mom was not mad.
+
+*Amorce en italique, échantillonnage top-k 5 à température 1,2. La grammaire et le
+dialogue tiennent ; la causalité reste fragile.*
 
 Chaque ligne ci-dessous est une expérience menée pour trancher une question, jamais pour
 illustrer une intuition. Le détail — protocole, chiffres bruts, réserves — est dans
@@ -79,6 +85,7 @@ illustrer une intuition. Le détail — protocole, chiffres bruts, réserves —
 | Ce que l'échauffement change | `A4` : 4,91 → 1,71 → **1,5199** — à calcul égal il **égale** l'optimum apparent `A2` (1,5228). La branche droite de la courbe en U était creusée par l'instabilité, pas par le budget de tokens |
 | Quel schedule ? | Cosinus à 2·10⁻³ → **1,4912** ; le pas constant explose à ce pas de base. Cosinus contre racine : écart sous le bruit, non tranché |
 | Que donne l'étape 5 menée au bout ? | 24,4 M de paramètres, le volume d'une époque du corpus complet, 6 h : **1,2382** contre 1,4635 pour l'ancien record. Un écart de 0,225, soit **dix-sept fois le plancher de bruit** |
+| Et 42 M sur trois passages du corpus ? | **1,1433**, en 10 h sur la 3090 de l'école. La validation ne remonte pas durablement : à trois passages, la répétition ne produit pas de surapprentissage visible |
 | Quand démarrer la décroissance ? | **Ça ne change rien de mesurable** : étendue 0,018 pour un bruit de 0,013 |
 | Deux runs identiques, à quel point diffèrent-ils ? | **0,013** de perte de validation. C'est le plancher sous lequel une comparaison ne veut rien dire — et il invalide deux conclusions écrites ici en septembre |
 | Jusqu'où monter le pas d'apprentissage ? | L'échauffement et l'écrêtage le font passer de **5·10⁻⁴ à ~5·10⁻³**, un facteur dix. Le plafond existe toujours — il se mesure à `dim=640`, entre 4,5 et 6·10⁻³ |
@@ -86,8 +93,9 @@ illustrer une intuition. Le détail — protocole, chiffres bruts, réserves —
 | Les métriques de texte suivent-elles la perte ? | **Oui au-dessus de 1,3** (r = 0,40 à 0,58 sur 40 paliers), **non en dessous** : seule la métrique lexicale garde un signal. Les avoir crues saturées était un artefact — les textes ne faisaient que 120 caractères |
 | Un lot plus grand irait-il plus vite ? | **Non** : 32 → 64 ne gagne que 10 % de débit, 128 manque de mémoire. La carte est déjà saturée à 32 |
 | D'où vient ce bruit ? | **Entièrement de la graine.** À graine fixée, deux runs relancés à 36 h d'intervalle donnent des journaux au diff vide : le non-déterminisme du GPU n'y contribue rien de mesurable |
-| Combien de bits les poids portent-ils ? | **8,3 bits** en virgule fixe, **4,0 bits** de mantisse. La précision mixte ne rapporterait que 8 % |
-| Où le modèle est-il fragile ? | Par rôle, pas par volume : `W_2` tolère 1,09 % de bruit, `W_q` 5,63 % — à forme identique |
+| Combien de bits les poids portent-ils ? | Sur un modèle de 12 M : **8,3 bits** en virgule fixe, **4,0 bits** de mantisse. La précision mixte ne rapporterait que 8 % |
+| Où le modèle est-il fragile ? | *(16/09, remis en question le 03/10)* Par rôle, pas par volume : `W_2` tolère 1,09 % de bruit, `W_q` 5,63 % |
+| Le modèle final est-il plus robuste ? | **Selon la loi de bruit.** Au bruit multiplicatif, ni plus ni moins qu'à 24 M (seuil 6,6 %). Au bruit additif, nettement plus fragile : +0,48 de perte à 2 % de bruit contre +0,09, soit 9,1 bits au lieu de 8,2. Ses trois familles les plus fragiles sont exactement ses trois familles à **queues lourdes** (max/σ de 17 à 27) : sensibilité propre, ou plage gonflée par quelques poids extrêmes ? Question ouverte, que la quantification doit trancher |
 
 Le résultat le plus utile n'est pas une ligne du tableau, c'est son étalon : **deux entraînements
 strictement identiques, à la graine près, diffèrent de 0,013**. Tout le mois de septembre a
@@ -97,17 +105,26 @@ Deux d'entre eux n'en étaient pas.
 ## Structure
 
 ```
-src/model/      🔴 bigram, rnn, lstm, transformer, encodeur/decodeur BPE, tireur_de_lot,
-                   generation (greedy/top-k/top-p), Vocabulaire, analyse_generation
-src/tooling/    🟢 tracer.py — tracés et mesures ; quatre vérificateurs de la chaîne
-                   d'encodage (découpage, tokenisation d'un mot, encodeur entier,
-                   fichiers de tokens entiers)
-scripts/        🟢 préparation des corpus, encodage à grande échelle, splits
-notes/resultats.md le compte rendu détaillé de chaque expérience
-notes/biblio.md    bibliographie annotée
-JOURNAL.md         journal d'apprentissage, un compte rendu par étape
-runs/              checkpoints, logs et courbes (non versionnés)
-data/              corpus et encodages (non versionnés)
+src/model/        🔴 bigram, réseau NumPy à la main (poid), même réseau en PyTorch
+                     (Reseau_torch), rnn, lstm, transformer, BPE (bpe_stories, bpe_liste,
+                     encodeur, decodeur), tireur_de_lot, generation (greedy/top-k/top-p),
+                     Vocabulaire, analyse_generation
+  analogique/     🔴 étape 8 — bruit multiplicatif et additif sur les poids
+  espace_etats/   🔴 étape 6 — pas commencée
+  raisonnement/   🔴 étape 7 — pas commencée
+  archives/          code abandonné, gardé pour mémoire
+src/tooling/      🟢 tracés ; vérificateurs de la chaîne d'encodage (découpage, tokenisation
+                     d'un mot, encodeur entier, fichiers de tokens) ; inspection, allègement
+                     et vérification des checkpoints ; répartition des poids
+scripts/          🟢 préparation des corpus, tokenizer, encodage à grande échelle, bancs
+                     d'échelle et de texte, sonde de gradient
+  analogique/     🟢 banc de bruit (étape 8)
+  nuits/          🟢 programmes de nuit, archivés tels qu'ils ont tourné
+notes/resultats.md   le compte rendu détaillé de chaque expérience
+notes/biblio.md      bibliographie annotée
+notes/questionnaire-reponses.md   bilan en 112 questions, et mes réponses
+JOURNAL.md           journal d'apprentissage, un compte rendu par étape
+runs/, data/         checkpoints, logs, courbes et corpus (non versionnés)
 ```
 
 ## Lancer
@@ -132,6 +149,11 @@ python3 src/model/generation.py
 
 # 5. analyse — sélectionne la génération la plus récente, écrit mesures et graphiques
 python3 src/model/analyse_generation.py
+
+# 6. étape 8 — bruit sur un checkpoint : global, puis une famille de matrices à la fois
+python3 scripts/analogique/banc_bruit.py --checkpoint runs/<run>/<checkpoint>.pt
+python3 scripts/analogique/banc_bruit.py --checkpoint runs/<run>/<checkpoint>.pt --par-famille
+python3 src/tooling/repartition_poids.py --checkpoint runs/<run>/<checkpoint>.pt
 ```
 
 Les étapes 3, 4 et 5 ne prennent aucun argument : elles retrouvent seules le dossier le
@@ -139,15 +161,17 @@ plus récent. C'est délibéré — un chemin recopié à la main est le moyen l
 d'analyser l'ancien modèle en croyant analyser le nouveau, sans qu'aucune erreur ne se
 lève.
 
-Les hyperparamètres sont en tête de `src/model/transformer.py`. Un run de 30 000 pas à
-6 blocs occupe 3,3 Go de VRAM et 3 h 30.
+Les hyperparamètres sont en tête de `src/model/transformer.py`. Ordres de grandeur : un
+run de 30 000 pas à 6 blocs occupe 3,3 Go de VRAM et 3 h 30 sur le portable ; le run final
+(42 M, 120 000 pas) a pris 10 h sur une RTX 3090.
 
 Dépendances : `torch` et `numpy` uniquement. `transformers`, `tokenizers` et `keras`
 sont volontairement proscrits — ils contiennent précisément ce que le projet consiste à
 écrire.
 
 Environnement de développement : RTX 5050 Laptop 8 Go, PyTorch 2.13 + CUDA 13,
-Python 3.14.
+Python 3.14. Runs longs sur une RTX 3090 24 Go de l'école (PyTorch 2.14, Python 3.11) :
+à configuration et graine égales, les deux machines donnent la même perte à 3·10⁻⁴ près.
 
 ## Journal
 

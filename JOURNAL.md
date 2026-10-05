@@ -262,7 +262,7 @@ décision apprise. (Première réponse « o_gate », corrigée par Ethan en « f
 
 ---
 
-### Étape 4 — Transformer décodeur   (en cours, commencée le 29/07/2026)
+### Étape 4 — Transformer décodeur   (29/07 → 17/08/2026)
 
 > Log factuel tenu par Claude. Rubriques de compréhension laissées à Ethan.
 
@@ -359,7 +359,7 @@ décision apprise. (Première réponse « o_gate », corrigée par Ethan en « f
 
 ---
 
-### Étape 5 — Tokenizer BPE + passage à l'échelle   (commencée le 31/07/2026)
+### Étape 5 — Tokenizer BPE + passage à l'échelle   (31/07 → 23/09/2026)
 
 > Log factuel tenu par Claude. Rubriques de compréhension laissées à Ethan.
 
@@ -2457,6 +2457,59 @@ l'objectif **régularisation** de l'étape 5, revenu négatif ce matin faute de 
   la façon dont le GPU exécute une couche, produit cette différence de rendement d'échelle ?
 - si la courbe en U dépend de la machine, que reste-t-il de « la taille optimale » comme notion ?
 
+#### 23/09/2026 (matin) — le run de l'école : 42,3 M de paramètres, trois passages sur le corpus
+
+> Log factuel tenu par Claude.
+
+**Ce qui a tourné.** 22/09 20 h 51 → 23/09 6 h 54, **10 h 03** sur la RTX 3090 de `gpu01`.
+`A4-grand` 640 × 8 × 8, **42,28 M de paramètres**, **120 000 pas**, lot 32 × 384, cosinus,
+lr 3·10⁻³, échauffement 1 000, décroissance sur les 30 000 derniers, écrêtage 1,0, 302 ms/pas.
+
+**1 474,6 M de tokens traversés** (32 × 384 × 120 000 — et non 1 479 M comme annoncé la veille),
+soit 34,9 par paramètre et **2,97 fois le volume du corpus** d'entraînement (497 M). Le tirage
+étant avec remise, la couverture vaut `1 − e^(−2,97)` ≈ 94,9 %.
+
+**Perte de validation : 1,1433. Perplexité 3,14.** Entraînement 1,094 au même pas. Contre 1,2382
+pour le run de la veille (24,4 M, une époque en volume) : un gain de 0,095, sept fois le
+plancher de bruit.
+
+    pas   12000   24000   36000   48000   60000   72000   84000   96000  108000  120000
+    val  1,4354  1,3419  1,3243  1,2650  1,2516  1,2294  1,2174  1,1831  1,1526  1,1433
+
+**Pas de remontée durable de la validation.** Elle descend encore sur le dernier quart du run,
+pendant que chaque token est vu environ trois fois ; ses remontées ponctuelles — jusqu'à +0,039
+entre 30 000 et 36 000 pas — sont résorbées en quelques milliers de pas. Le régime de
+répétition, que ce run devait ouvrir, ne produit pas de surapprentissage visible à cette
+échelle : l'écart train/val vaut 0,049 au dernier pas.
+
+**Une réserve sur le dernier chiffre.** La validation du run se mesure sur 10 lots tirés au
+hasard ; ses trois dernières mesures valent 1,1376, 1,0960 et 1,1433, à pas d'apprentissage
+quasi nul. Le banc de bruit du 03/10 remesure ce même checkpoint, avec une fonction de
+validation au code identique, sur 5 × 10 lots : **1,1176 ± 0,0066**. L'écart de 0,026 dépasse
+ce que la dispersion entre répétitions du banc laisse attendre. Il reste à expliquer.
+
+**Le texte**, même amorce et même réglage que les mesures précédentes (top-k 5, T = 1,2) :
+
+> *Tim and his dog were playing in the garden when* they heard a loud noise. It was a big
+> truck! Tim and the dog were scared. They ran to Tim's house to hide. When they were inside,
+> Tim's mom said, "Don't worry, the truck is just doing its job. We'll get some water to wash
+> away the dirt." Tim was happy his mom was not mad. He said, "I'm sorry, Mom. I won't be
+> stupid next time."
+
+La grammaire et l'enchaînement des répliques tiennent ; la causalité, non — rien dans
+l'histoire ne justifie les excuses de Tim.
+
+**Ce que ça clôt.** C'est le modèle final de l'étape 5, et le modèle de référence pour les
+branches. La question du 21-22/09 — « qu'est-ce qui se passerait à la deuxième époque ? » —
+a sa réponse à trois passages : rien de visible côté surapprentissage, et un gain réel.
+
+**Questions ouvertes :**
+
+- la validation descend encore à 120 000 pas, où le cosinus a ramené le pas à zéro. Combien de
+  passages faudrait-il pour la voir remonter, et à quelle taille de modèle ?
+- l'écart de 0,026 entre la mesure de fin de run et celle du banc : malchance sur 10 lots, ou
+  quelque chose qui distingue les deux mesures et qu'on n'a pas vu ?
+
 #### 23/09/2026 — les métriques ne saturaient pas, les textes étaient trop courts
 
 **Ce qui a tourné.** L'échelle loss/texte sur les 40 checkpoints du run de la nuit, de 1,77 à
@@ -2509,7 +2562,7 @@ vingt-neuf suivants démentent. Deux façons de lire une courbe partielle.
 
 > Ouverte avant la fin de l'étape 5, contrairement à ce que prévoit la feuille de route.
 > Les mesures portent donc sur des modèles intermédiaires de 90 minutes, pas sur le modèle
-> final : elles seront à refaire dessus.
+> final : elles seront à refaire dessus. *Refaites sur le modèle final le 03/10 — voir plus bas.*
 
 #### 14-16/09/2026 — premières mesures de bruit
 
@@ -2626,6 +2679,84 @@ cellules en parallèle divisent le bruit par √N, ce qui se simule en rejouant 
 à alpha/√N, sans rien coder. Mais le chiffrage est décevant : égaliser W_2 sur W_q
 demande 27 cellules par poids, et ×14,7 sur la surface du modèle. Le gain est en racine,
 le prix est linéaire.
+
+#### 03/10/2026 — le modèle final au banc de bruit, et la forme de ses poids
+
+> Log factuel tenu par Claude.
+
+**Ce qui a tourné.** Les deux balayages du 16/09, refaits sur le modèle final (`A4-grand`,
+42,3 M, pas 120 000) sur la 3090 de `gpu01` : global en 1,8 min, par famille en 13,5 min. Même
+protocole — deux lois, neuf intensités, cinq répétitions appariées, seuil de +0,01 de perte.
+
+**Global : deux verdicts opposés selon la loi.**
+
+| modèle | perte de base | seuil multiplicatif | seuil additif | bits (additif) |
+|---|---|---|---|---|
+| A1 4,3 M | 1,596 | 3,8 % | 0,32 % | 9,3 |
+| A2 12,4 M | 1,532 | 6,1 % | 0,63 % | 8,3 |
+| A3 24,4 M | 1,639 | 6,7 % | 0,68 % | 8,2 |
+| B2 28,6 M | 1,760 | 6,8 % | 0,88 % | 7,8 |
+| **A4 42,3 M** | **1,118** | **6,6 %** | **0,37 %** | **9,1** |
+
+Au bruit multiplicatif, A4 se comporte exactement comme A3 et B2. Au bruit additif, il est
+presque aussi fragile que le minuscule A1 : +0,48 de perte à alpha = 2 %, contre +0,09 pour A3.
+La saturation de la robustesse observée le 16/09 ne se prolonge pas — elle s'inverse, mais pour
+une seule des deux lois.
+
+**Par famille : le classement du 16/09 ne tient plus.** Bits nécessaires en additif :
+
+| famille | A2 | A3 | **A4** | seuil multiplicatif (A4) |
+|---|---|---|---|---|
+| `W_q` | 5,2 | 5,0 | **5,4** | 24,1 % |
+| `W_v` | 6,2 | 6,2 | **6,4** | 21,5 % |
+| `W_out` | 7,2 | 7,1 | **6,7** | 11,8 % |
+| `W_1` | 6,7 | 6,3 | **7,1** | 13,2 % |
+| `W_k` | 6,1 | 6,2 | **7,2** | 33,2 % |
+| `W_o` | 7,2 | 6,9 | **7,8** | 18,8 % |
+| `W_2` | 7,5 | 7,5 | **8,7** | 14,6 % |
+
+`W_k` passe de l'avant-dernière place à la troisième, `W_out` recule. Et `W_k`, troisième plus
+fragile au bruit additif, est **la plus tolérante de toutes** au bruit multiplicatif.
+
+**La forme des poids** (`src/tooling/repartition_poids.py`, nouveau) :
+
+| famille | max/σ | kurtosis | 99 % des poids sous… |
+|---|---|---|---|
+| `W_out` | 6 | 0,0 | 46 % de max\|w\| |
+| `W_q` | 8 | 0,5 | 41 % |
+| `W_v` | 8 | 1,2 | 47 % |
+| `W_1` | 8 | 0,2 | 40 % |
+| `W_o` | 17 | 5,2 | 26 % |
+| `W_k` | 25 | 25,2 | 16 % |
+| `W_2` | 27 | 3,1 | 12 % |
+
+Deux populations : quatre familles quasi gaussiennes, et trois à **queues lourdes** — un pic
+étroit autour de zéro, plus quelques centaines de poids isolés jusqu'à ±20 ou ±35. Dans `W_2`,
+99 % des poids tiennent dans les 12 premiers pour cent de la plage. Les poids extrêmes sont
+concentrés sur peu de lignes : la médiane, sur les lignes, du max de la ligne vaut 0,14 du max
+de la matrice pour `W_2`, 0,19 pour `W_k`.
+
+Les trois familles à queues lourdes sont exactement les trois plus fragiles d'A4 au bruit
+additif — celui dont l'écart-type est proportionnel à max|w|.
+
+**Une erreur de ma part.** Le banc nommait son dossier de résultats à la minute près. Les deux
+balayages, lancés dans la même minute, ont écrit dans le même dossier, et le dernier fini a
+écrasé le `resultats.json` de l'autre. Le global a été relancé. Le nom porte désormais le mode et
+les secondes, et le banc refuse d'écrire dans un dossier existant. Deux incidents sans gravité :
+un redémarrage de la VM a tué le premier lancement, et `matplotlib` manquait sur `gpu01` — les
+mesures étaient déjà écrites quand le tracé a échoué.
+
+**Questions ouvertes :**
+
+- la fragilité au bruit additif mesure-t-elle une sensibilité propre à chaque famille, ou la
+  largeur de sa plage, gonflée par quelques poids extrêmes ?
+- `W_k` est la plus tolérante au bruit multiplicatif et la troisième plus fragile à l'additif.
+  Qu'est-ce que cet écart dit de ce que chaque loi mesure ?
+- A4 diffère d'A3 par la taille **et** par la durée d'entraînement. Les queues lourdes viennent
+  de laquelle des deux ? Expérience : la répartition des poids sur des checkpoints
+  intermédiaires du même run.
+- pour la quantification : une grille sur `±max|w|` gaspille l'essentiel de ses niveaux sur
+  `W_2`. Que coûte d'écrêter les poids extrêmes pour resserrer la grille ?
 
 ---
 

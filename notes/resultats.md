@@ -350,6 +350,7 @@ les six configurations sur les valeurs par défaut en affichant des résultats c
 ## Branche 8, première mesure : combien de bits les poids portent-ils ?
 
 Sonde préliminaire, sur des modèles intermédiaires de 90 minutes — pas sur le modèle final.
+*Refaite sur le modèle final le 03/10 : voir la dernière section de ce fichier.*
 Deux lois de bruit gaussien appliquées aux sept familles de produits matriciels, sans jamais
 toucher aux layernorms ni aux biais, qui resteraient numériques sur un substrat analogique :
 
@@ -426,6 +427,12 @@ En analogique, on peut réduire le bruit d'une matrice en mettant N cellules en 
 les conductances s'ajoutent, les bruits s'ajoutent en quadrature, le rapport gagne √N. Amener `W_2`
 au niveau de `W_q` demanderait donc 27 cellules, et l'ensemble du modèle **14,7 fois la surface**.
 Le gain est en racine, le prix est linéaire.
+
+*Remis en question le 03/10. Sur le modèle final, l'ordre change — `W_k` passe de l'avant-dernière
+place à la troisième — et les trois familles les plus fragiles au bruit additif sont exactement
+celles dont la plage est étirée par quelques poids extrêmes. « Par rôle » n'est donc pas
+établi : la fragilité additive pourrait mesurer la forme de la distribution des poids plutôt
+que leur rôle. Voir la dernière section de ce fichier.*
 
 ## Le pas d'apprentissage : échauffement, décroissance, écrêtage
 
@@ -796,6 +803,53 @@ plus lente par défaut, `nvidia-smi` les trie par position sur le bus PCI. Il fa
 `CUDA_DEVICE_ORDER=PCI_BUS_ID` pour que les deux numérotations coïncident — sans quoi le calcul
 part sur une GTX 1660 sans que rien ne le signale.*
 
+## Le run de l'école : 42,3 M de paramètres, trois passages sur le corpus
+
+Le modèle final du projet à ce jour, entraîné sur la RTX 3090 de l'école :
+
+    A4-grand   640 x 8 x 8   42,28 M parametres
+    120 000 pas, lot 32 x 384 = 1 474,6 M tokens traverses
+    = 2,97 fois le volume du corpus (497 M), 34,9 tokens par parametre
+    cos, lr 3e-3, echauffement 1000, decroissance sur les 30 000 derniers, ecretage 1,0
+    10 h 03 sur RTX 3090, 302 ms/pas
+
+**Perte de validation : 1,1433. Perplexité : 3,14.** Entraînement 1,094 au même pas.
+
+Contre **1,2382** pour le run précédent (24,4 M, une époque en volume, 6 h sur le portable) :
+un gain de **0,095**, sept fois le plancher de bruit.
+
+| pas | 12 000 | 24 000 | 36 000 | 48 000 | 60 000 | 72 000 | 84 000 | 96 000 | 108 000 | 120 000 |
+|---|---|---|---|---|---|---|---|---|---|---|
+| val | 1,4354 | 1,3419 | 1,3243 | 1,2650 | 1,2516 | 1,2294 | 1,2174 | 1,1831 | 1,1526 | **1,1433** |
+
+**C'est délibérément au-delà du point de Chinchilla** — 35 tokens par paramètre au lieu de 20 —
+pour entrer dans le régime de répétition : le tirage étant avec remise, la couverture vaut
+`1 − e^(−2,97)` ≈ 95 %, et chaque token est vu environ trois fois.
+
+**Et la répétition ne produit pas de surapprentissage visible.** La validation n'a pas de
+remontée durable : ses remontées ponctuelles, jusqu'à +0,039 entre 30 000 et 36 000 pas, sont
+résorbées en quelques milliers de pas, et elle descend encore sur le dernier quart. L'écart
+train/val vaut 0,049 au dernier pas. Le critère d'inquiétude — la validation qui remonte
+pendant que l'entraînement descend — n'est jamais atteint.
+
+**Une réserve sur le chiffre final.** La validation se mesure sur 10 lots tirés au hasard, et
+ses trois dernières mesures valent 1,1376, 1,0960 et 1,1433, à pas d'apprentissage quasi nul.
+Le banc de bruit de la branche 8 remesure ce même checkpoint, avec une fonction de validation au
+code identique, sur 5 × 10 lots : **1,1176 ± 0,0066**. L'écart de 0,026 dépasse ce que la
+dispersion entre répétitions laisse attendre ; il n'est pas encore expliqué. Le 1,1433 reste le
+chiffre de référence, parce que c'est celui du protocole commun à tous les runs.
+
+Même amorce, même réglage (top-k 5, T = 1,2) que les mesures de texte précédentes :
+
+> *Tim and his dog were playing in the garden when* they heard a loud noise. It was a big
+> truck! Tim and the dog were scared. They ran to Tim's house to hide. When they were inside,
+> Tim's mom said, "Don't worry, the truck is just doing its job. We'll get some water to wash
+> away the dirt." Tim was happy his mom was not mad. He said, "I'm sorry, Mom. I won't be
+> stupid next time."
+
+La grammaire et l'enchaînement des répliques tiennent. La causalité, non : rien dans
+l'histoire ne justifie les excuses de Tim.
+
 ## Les métriques ne saturaient pas : les textes étaient trop courts
 
 Quarante checkpoints du run de 120 000 pas, de **1,77 à 1,10** — la plus large plage jamais
@@ -841,3 +895,74 @@ conclure « elles saturent » sans remarquer que les textes étaient trop courts
 quoi que ce soit à mesurer. La seconde : annoncer une tendance nette à mi-parcours, sur les onze
 premiers points d'une série bruitée, alors que les vingt-neuf suivants la démentent. Deux façons
 opposées de lire une courbe partielle.*
+
+## Branche 8 sur le modèle final : deux lois, deux verdicts
+
+Les deux balayages de bruit, refaits le 03/10 sur `A4-grand` au pas 120 000. Même protocole
+qu'en septembre : deux lois, neuf intensités, cinq répétitions appariées, seuil de +0,01 de
+perte, bits = `log2(2/alpha)` pour la loi additive.
+
+**Global.**
+
+| modèle | perte de base | +perte, mult. 10 % | +perte, add. 2 % | seuil mult. | seuil add. | bits |
+|---|---|---|---|---|---|---|
+| A1 4,3 M | 1,596 | +0,067 | +0,590 | 3,8 % | 0,32 % | 9,3 |
+| A2 12,4 M | 1,532 | +0,028 | +0,113 | 6,1 % | 0,63 % | 8,3 |
+| A3 24,4 M | 1,639 | +0,022 | +0,089 | 6,7 % | 0,68 % | 8,2 |
+| B2 28,6 M | 1,760 | +0,021 | +0,054 | 6,8 % | 0,88 % | 7,8 |
+| **A4 42,3 M** | **1,118** | **+0,023** | **+0,479** | **6,6 %** | **0,37 %** | **9,1** |
+
+**Au bruit multiplicatif, A4 se comporte exactement comme A3 et B2** : même seuil, même
+dégradation à 10 %. **Au bruit additif, il est presque aussi fragile qu'A1**, le plus petit
+modèle : +0,48 de perte à 2 % de bruit, cinq fois plus qu'A3. La saturation de septembre ne se
+prolonge pas, elle s'inverse — pour une seule des deux lois. Or la seule chose qui distingue
+les deux lois est que l'écart-type additif est proportionnel à max|w|.
+
+Réserve : A4 diffère d'A3 par la taille **et** par la durée d'entraînement (perte de base 1,12
+contre 1,64). L'effet n'est pas encore attribuable à l'une des deux.
+
+**Par famille.**
+
+| famille | bits A2 | bits A3 | **bits A4** | seuil mult. A4 |
+|---|---|---|---|---|
+| `W_q` | 5,2 | 5,0 | **5,4** | 24,1 % |
+| `W_v` | 6,2 | 6,2 | **6,4** | 21,5 % |
+| `W_out` | 7,2 | 7,1 | **6,7** | 11,8 % |
+| `W_1` | 6,7 | 6,3 | **7,1** | 13,2 % |
+| `W_k` | 6,1 | 6,2 | **7,2** | 33,2 % |
+| `W_o` | 7,2 | 6,9 | **7,8** | 18,8 % |
+| `W_2` | 7,5 | 7,5 | **8,7** | 14,6 % |
+
+Le classement additif, identique sur A1, A2 et A3, change sur A4 : `W_k` passe de
+l'avant-dernière place à la troisième, `W_out` recule. Et `W_k`, troisième plus fragile au bruit
+additif, est la **plus tolérante** des sept au bruit multiplicatif.
+
+**La forme des poids.** Répartition des valeurs famille par famille
+(`src/tooling/repartition_poids.py`) :
+
+| famille | max/σ | kurtosis | 99 % des poids sous… |
+|---|---|---|---|
+| `W_out` | 6 | 0,0 | 46 % de max\|w\| |
+| `W_q` | 8 | 0,5 | 41 % |
+| `W_v` | 8 | 1,2 | 47 % |
+| `W_1` | 8 | 0,2 | 40 % |
+| `W_o` | 17 | 5,2 | 26 % |
+| `W_k` | 25 | 25,2 | 16 % |
+| `W_2` | 27 | 3,1 | 12 % |
+
+Deux populations. Quatre familles quasi gaussiennes, et trois à **queues lourdes** : un pic
+étroit autour de zéro, plus quelques centaines de poids isolés jusqu'à ±20 ou ±35. Dans `W_2`,
+99 % des poids tiennent dans les 12 premiers pour cent de la plage. Les poids extrêmes sont
+concentrés sur peu de lignes : la médiane, sur les lignes, du maximum de la ligne vaut 0,14 du
+maximum de la matrice pour `W_2`.
+
+**Les trois familles à queues lourdes sont exactement les trois plus fragiles d'A4 au bruit
+additif.** Ce que ça ne dit pas encore : si leur fragilité est une sensibilité propre, ou
+l'effet d'une plage gonflée par une poignée de poids. Deux expériences le trancheront — la
+répartition des poids le long du run, pour savoir quand les queues apparaissent, et la
+quantification avec une plage écrêtée, pour savoir ce que coûte de sacrifier les poids
+extrêmes.
+
+*Conséquence directe pour la quantification : une grille régulière sur `±max|w|` gaspillerait
+l'essentiel de ses niveaux sur `W_2`, `W_k` et `W_o`. Le choix de la plage n'est pas un détail
+d'implémentation, c'est la moitié de la question.*

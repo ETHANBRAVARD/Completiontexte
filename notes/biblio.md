@@ -24,6 +24,8 @@ sienne remplace la compréhension par de la reconnaissance de forme.
 | 14 | Wei et al. 2022 (*Chain-of-Thought*) | après 5 | avant, pour cadrer la question |
 | 15 | Lee et al. 2023 (*Teaching Arithmetic*) | après 5 | avant, c'est lui qui rend l'essai faisable |
 | 16 | Hao et al. 2024 (*Coconut*) | après 5 | avant d'écrire le rebouclage latent |
+| 17 | Su et al. 2021 (*RoPE*), Press et al. 2021 (*ALiBi*) | 6 | à l'étape 6, pas avant |
+| 18 | Quantification : Gholami 2021, Jacob 2018, Dettmers 2022, Bengio 2013, Joshi 2020 | 8 | avant d'écrire la quantification |
 
 ---
 
@@ -394,3 +396,37 @@ Le contournement sans article et sans réentraînement : **faire glisser la fen�
 génération, en ne donnant au modèle que les `max_len` derniers tokens. Le plafond disparaît,
 la mémoire reste de 384 tokens — ce qui produit un texte long qui oublie son propre début, et
 donne à voir la limite au lieu de la contourner.
+
+## 18. Quantification et substrat analogique — l'étape 8
+
+Ouverte le 03/10/2026, au moment de passer du bruit à la quantification.
+
+- **Gholami et al. (2021), *A Survey of Quantization Methods for Efficient Neural Network
+  Inference*** — arXiv:2103.13630. **À lire en premier.** Une vue d'ensemble qui pose le
+  vocabulaire : quantification uniforme ou non, symétrique ou non, choix de la plage
+  (*calibration*, dont l'écrêtage par centile), granularité (par matrice, par ligne), et
+  la différence entre quantifier un modèle déjà entraîné et l'entraîner en le sachant
+  quantifié. Les sections sur la plage et la granularité répondent directement au problème
+  posé par les queues lourdes de `W_2` et `W_k`.
+- **Jacob et al. (2018), *Quantization and Training of Neural Networks for Efficient
+  Integer-Arithmetic-Only Inference*** — arXiv:1712.05877. Le schéma entier sur 8 bits
+  devenu standard. Utile pour une question précise : pourquoi on tient à ce que zéro
+  tombe exactement sur un niveau de la grille. Et sa seconde moitié traite de
+  l'entraînement avec quantification simulée (sous-étape 8.6).
+- **Bengio, Léonard & Courville (2013), *Estimating or Propagating Gradients Through
+  Stochastic Neurons for Conditional Computation*** — arXiv:1308.3432. D'où vient
+  l'estimateur *straight-through* : comment faire passer un gradient à travers une
+  opération dont la dérivée est nulle presque partout, comme un arrondi. Seulement si on
+  ouvre la sous-étape 8.6.
+- **Dettmers et al. (2022), *LLM.int8(): 8-bit Matrix Multiplication for Transformers at
+  Scale*** — arXiv:2208.07339. Des valeurs aberrantes qui cassent la quantification
+  naïve en 8 bits, traitées à part en précision supérieure. Réserve : leurs valeurs
+  aberrantes sont dans les **activations**, et apparaissent à plusieurs milliards de
+  paramètres. Le parallèle avec les queues lourdes des poids d'un modèle de 42 M est à
+  vérifier, pas à supposer.
+- **Joshi et al. (2020), *Accurate deep neural network inference using computational
+  phase-change memory*** — *Nature Communications* 11, 2473. Le substrat réel : des réseaux
+  profonds exécutés sur des cellules de mémoire à changement de phase, avec leur
+  imprécision de programmation et leur dérive dans le temps, et un entraînement avec bruit
+  injecté pour rendre le réseau robuste. C'est la lecture qui permet de confronter les deux
+  lois de bruit du banc au matériel.
