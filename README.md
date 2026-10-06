@@ -1,5 +1,7 @@
 # Completiontexte
 
+> *README temporaire, coécrit avec Claude.*
+
 Un modèle de langage écrit de zéro, de la table de comptage bigramme au transformer
 décodeur de 42 millions de paramètres entraîné sur 1,5 milliard de tokens — sans
 `transformers`, sans `tokenizers`, sans copier-coller.
