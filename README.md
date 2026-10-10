@@ -1,6 +1,8 @@
 # Completiontexte
 
-> *README temporaire, coécrit avec Claude.*
+*Un transformer codé de zéro, pour comprendre de l'intérieur comment fonctionnent les LLM les plus simples.*
+
+> **In English:** a transformer written from scratch to understand how the simplest LLMs work: 42M parameters, a BPE tokenizer, 1.5B training tokens, width/depth ablations and seed-noise measurements. Full write-up in French below.
 
 Un modèle de langage écrit de zéro, de la table de comptage bigramme au transformer
 décodeur de 42 millions de paramètres entraîné sur 1,5 milliard de tokens — sans
@@ -185,3 +187,7 @@ décalage de tous les axes positifs, `cross_entropy` et son axe des classes, le
 la pré-tokenisation reprise six fois avant que le curseur avance du bon nombre de
 caractères, et les quatre versions successives du pre-norm — dont trois déplaçaient la
 normalisation au bon endroit du fichier mais sur le mauvais argument.
+
+---
+
+*Ce README a été rédigé avec l'aide de Claude, à partir de mes notes et de mes résultats. Le code du modèle et les expériences sont de moi ; la part confiée à l'assistant, l'outillage, est détaillée plus haut dans « La contrainte de méthode ».*
