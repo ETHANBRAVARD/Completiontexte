@@ -952,8 +952,8 @@ additif, est la **plus tolérante** des sept au bruit multiplicatif.
 
 Deux populations. Quatre familles quasi gaussiennes, et trois à **queues lourdes** : un pic
 étroit autour de zéro, plus quelques centaines de poids isolés jusqu'à ±20 ou ±35. Dans `W_2`,
-99 % des poids tiennent dans les 12 premiers pour cent de la plage. Les poids extrêmes sont
-concentrés sur peu de lignes : la médiane, sur les lignes, du maximum de la ligne vaut 0,14 du
+99 % des poids tiennent dans les 12 premiers pour cent de la plage. La plupart des lignes n'en
+contiennent aucun : la médiane, sur les lignes, du maximum de la ligne vaut 0,14 du
 maximum de la matrice pour `W_2`.
 
 **Les trois familles à queues lourdes sont exactement les trois plus fragiles d'A4 au bruit

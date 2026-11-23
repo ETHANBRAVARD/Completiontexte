@@ -2732,8 +2732,8 @@ fragile au bruit additif, est **la plus tolérante de toutes** au bruit multipli
 
 Deux populations : quatre familles quasi gaussiennes, et trois à **queues lourdes** — un pic
 étroit autour de zéro, plus quelques centaines de poids isolés jusqu'à ±20 ou ±35. Dans `W_2`,
-99 % des poids tiennent dans les 12 premiers pour cent de la plage. Les poids extrêmes sont
-concentrés sur peu de lignes : la médiane, sur les lignes, du max de la ligne vaut 0,14 du max
+99 % des poids tiennent dans les 12 premiers pour cent de la plage. La plupart des lignes n'en
+contiennent aucun : la médiane, sur les lignes, du max de la ligne vaut 0,14 du max
 de la matrice pour `W_2`, 0,19 pour `W_k`.
 
 Les trois familles à queues lourdes sont exactement les trois plus fragiles d'A4 au bruit
@@ -2758,6 +2758,107 @@ mesures étaient déjà écrites quand le tracé a échoué.
 - pour la quantification : une grille sur `±max|w|` gaspille l'essentiel de ses niveaux sur
   `W_2`. Que coûte d'écrêter les poids extrêmes pour resserrer la grille ?
 
+**Ce que j'ai compris**
+
+**La plage gonflée.** On se retrouve avec les trois familles à queues lourdes qui sont les
+plus sensibles au bruit additif. La fragilité au bruit additif se mesure donc à la plage
+gonflée par une poignée de poids : elle est liée à la plage de valeurs possibles.
+
+**Les deux lois n'ont pas le même impact.** Dans le cas des queues lourdes, les poids qui
+étaient très lourds gardent, même avec le facteur multiplicatif, leur prédominance : ils
+gardent une partie de l'information qu'ils possédaient.
+
+**Ce que mesure le classement de fragilité.** Le seuil à partir duquel on ne peut plus
+distinguer deux informations. Deux conclusions possibles. Soit il n'y a pas de corrélation
+entre la taille du modèle et sa stabilité face au bruit, et dans ce cas la répartition des
+poids dépend de la taille du modèle — ce qui paraît plutôt cohérent. Soit c'est l'entraînement
+qui joue, plus que la taille — ce qui serait cohérent aussi, parce que l'entraînement donne le
+temps au gradient de modifier grandement les poids.
+
+**Pour séparer la taille et la durée d'entraînement**, reprendre tous les checkpoints et en
+faire un tableau à deux dimensions.
+
+**Pour vérifier l'hypothèse de la plage**, calculer des plages écrêtées, faire fonctionner le
+bruit additif sur ces plages, et voir si `W_2`, `W_k` et `W_o` deviennent moins sensibles. Si
+c'est le cas, ça améliore nettement les résultats, parce qu'un écrêtage doit pouvoir se faire
+assez simplement en circuit analogique — un montage calibré qui ne récupère qu'un certain
+pourcentage de la plage.
+
+
+#### 13/10/2026 — écrêter les poids : ce que coûte la saturation seule
+
+> Log factuel tenu par Claude.
+
+**Ce qui a tourné.** `ecretage_centile` (écrite par Ethan dans `Bruit.py`) : chaque matrice
+voit ses poids saturés au centile `c` de |w|, sans aucun bruit. Banc apparié
+(`scripts/analogique/banc_ecretage.py`, nouveau), modèle final, cinq répétitions, 7,3 min sur
+le portable. Hausse de perte, pour une base de 1,118 :
+
+| poids saturés | 1 % | 0,1 % | 0,01 % |
+|---|---|---|---|
+| **tout le modèle** | **+5,94** | **+4,75** | **+1,34** |
+| `W_2` | +6,84 | +5,22 | +3,23 |
+| `W_o` | +2,97 | +2,62 | +0,022 |
+| `W_v` | +0,82 | +0,24 | +0,086 |
+| `W_k` | +0,68 | +0,21 | +0,004 |
+| `W_1` | +0,046 | +0,026 | +0,015 |
+| `W_q` | +0,018 | +0,004 | +0,001 |
+| `W_out` | +0,001 | 0,000 | 0,000 |
+
+Saturer un poids sur dix mille de `W_2` — environ 160 par matrice — détruit le modèle. Les poids
+extrêmes ne sont pas du bruit : ils portent l'essentiel.
+
+**Une plage par ligne ou par colonne ?** Pour une matrice de forme (sortie, entrée), la ligne
+est un neurone de sortie, la colonne une entrée. Médiane, sur les lignes (ou les colonnes), du
+max local rapporté au max de la matrice, et bits gagnés à donner à chacune sa propre plage :
+
+| famille | lignes | colonnes |
+|---|---|---|
+| `W_2` | 0,15 → 2,7 bits | 0,14 → 2,9 bits |
+| `W_k` | 0,18 → 2,5 bits | 0,15 → 2,7 bits |
+| `W_o` | 0,26 → 2,0 bits | 0,27 → 1,9 bits |
+| `W_1` | 0,43 → 1,2 bits | 0,50 → 1,0 bit |
+| `W_q` | 0,46 → 1,1 bits | 0,47 → 1,1 bits |
+| `W_v` | 0,53 → 0,9 bit | 0,51 → 1,0 bit |
+| `W_out` | 0,56 → 0,8 bit | 0,64 → 0,6 bit |
+
+Les deux axes se valent à 0,2 bit près. L'écart-type d'une ligne ou d'une colonne est celui de
+la matrice entière (rapport médian 0,93 à 1,00) : le cœur des poids est homogène, ce sont des
+poids extrêmes isolés, absents de la plupart des lignes, qui fixent la plage.
+
+**Ce que j'ai compris**
+
+**L'écrêtage ne tient pas.** On ne pourrait pas savoir à l'avance l'impact de l'écrêtage — sauf
+qu'on implémente un modèle fonctionnel, donc on pourrait écrêter certaines familles. Mais
+ceux qui sont déjà solides sont ceux qui sont les moins impactés par l'écrêtage, ce qui doit
+être logique, et les plus impactés sont ceux qui ont les queues lourdes. L'écrêtage n'est donc
+pas très pertinent : ceux qu'on écrête n'ont pas besoin de l'être. Sauf `W_k`, qu'on peut
+essayer d'écrêter, ça a assez peu d'impact — il faut regarder si écrêter `W_k` nous aiderait
+vraiment.
+
+**`W_2` et `W_o`.** À part `W_o` à 0,01 %, pas pertinent : pas d'écrêtage sur ces deux-là. On
+pourrait dédoubler les plus fragiles et les moins corrigeables — `W_2` est très fragile, c'est
+la matrice qu'on choisirait de dédoubler pour augmenter sa stabilité.
+
+**Le prix du dédoublement.** Il faudrait calculer le gain en coût de calcul, en temps de calcul
+et en électricité : qu'apporte un passage en analogique ? Je ne pense pas que ce soit un
+problème, mais cent fois plus de composants pour une matrice, il faudrait mieux étudier les
+comparaisons.
+
+**Pourquoi saturer `W_k` coûte peu.** Si on écrête les plus grands, leurs scores se retrouvent
+tous à la même valeur, mais ils restent les plus grands. La sortie du softmax n'est donc pas
+beaucoup impactée.
+
+**La suite.** Plutôt qu'un écrêtage classique, une plage par ligne : regarder moyenne, écart-type
+et valeurs extrêmes des lignes et des colonnes pour savoir ce qui est le plus pertinent et ce
+qui garde le plus de tendance.
+
+**Questions ouvertes :**
+
+- dédoubler `W_2` sur A4 demande environ 100 cellules par poids (3,3 bits d'écart, gain en √N).
+  Que coûte ce surcroît face à ce que l'analogique fait gagner en énergie par opération ?
+- les plages par ligne et par colonne gagnent autant : lequel est réalisable dans un crossbar —
+  un gain par ligne de sortie, ou une mise à l'échelle de chaque tension d'entrée ?
 ---
 
 ## Log des `PSEUDOCODE`
